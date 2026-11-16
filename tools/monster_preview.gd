@@ -1,0 +1,108 @@
+extends Node3D
+## Renders preview shots of the spirit's body for art iteration.
+## Run (needs a window, not --headless):
+##   godot --path . res://tools/monster_preview.tscn -- <output_dir>
+## Writes <output_dir>/monster_<shot>.png and quits.
+
+const SHOTS := [
+	# name, camera position, look-at, pose ("idle" / "walk" / "chase" / "burn"), flashlight
+	["front", Vector3(0.0, 1.55, -2.6), Vector3(0.0, 1.05, 0.0), "idle", true],
+	["three_quarter", Vector3(1.7, 1.5, -1.9), Vector3(0.0, 1.05, 0.0), "idle", true],
+	["side", Vector3(2.6, 1.3, 0.0), Vector3(0.0, 1.0, 0.0), "idle", true],
+	["walk", Vector3(-2.2, 1.4, -1.6), Vector3(0.0, 1.0, 0.0), "walk", true],
+	["face", Vector3(0.12, 1.8, -1.05), Vector3(-0.04, 1.79, -0.36), "idle", true],
+	["face_front", Vector3(-0.03, 1.85, -0.85), Vector3(-0.05, 1.83, -0.38), "idle", true],
+	["chase", Vector3(0.4, 1.5, -2.4), Vector3(0.0, 1.1, 0.0), "chase", true],
+	["burn", Vector3(0.3, 1.5, -2.4), Vector3(0.0, 1.1, 0.0), "burn", true],
+	["corridor_dark", Vector3(0.6, 1.6, -5.5), Vector3(0.0, 1.2, 0.0), "walk", true],
+]
+
+var _body: MonsterBody
+var _camera: Camera3D
+var _flashlight: SpotLight3D
+
+
+func _ready() -> void:
+	var args := OS.get_cmdline_user_args()
+	var out_dir := args[0] if args.size() > 0 else "user://"
+	_build_stage()
+	await _capture_all(out_dir)
+	get_tree().quit()
+
+
+func _capture_all(out_dir: String) -> void:
+	for shot: Array in SHOTS:
+		var cam_pos: Vector3 = shot[1]
+		var target: Vector3 = shot[2]
+		var pose: String = shot[3]
+		_camera.look_at_from_position(cam_pos, target)
+		_flashlight.visible = shot[4]
+		# Let the pose settle (blends are time-based).
+		for i in 90:
+			_pose(pose, 1.0 / 60.0)
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		var image := get_viewport().get_texture().get_image()
+		var path := out_dir.path_join("monster_%s.png" % shot[0])
+		image.save_png(path)
+		print("saved ", path)
+
+
+func _pose(pose: String, delta: float) -> void:
+	match pose:
+		"idle": _body.animate(delta, 0.0, false, 0.0)
+		"walk": _body.animate(delta, 1.5, false, 0.0)
+		"chase": _body.animate(delta, 3.2, true, 0.0)
+		"burn": _body.animate(delta, 0.0, false, 1.0)
+
+
+func _build_stage() -> void:
+	# Same environment as the game.
+	var main: Node = load("res://scenes/main.tscn").instantiate()
+	var env_node: WorldEnvironment = main.get_node("WorldEnvironment")
+	var env := WorldEnvironment.new()
+	env.environment = env_node.environment
+	add_child(env)
+	main.free()
+
+	var wall := StandardMaterial3D.new()
+	wall.albedo_color = Color(0.3, 0.3, 0.31)
+	wall.roughness = 0.9
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_color = Color(0.2, 0.19, 0.18)
+	_box(Vector3(0, -0.1, 0), Vector3(8, 0.2, 14), floor_mat)
+	_box(Vector3(0, 1.5, 2.5), Vector3(8, 3, 0.2), wall)
+	_box(Vector3(-3.0, 1.5, 0), Vector3(0.2, 3, 14), wall)
+	_box(Vector3(3.0, 1.5, -1.0), Vector3(0.2, 3, 4), wall)
+
+	_body = MonsterBody.new()
+	add_child(_body)
+
+	_camera = Camera3D.new()
+	_camera.fov = 60.0
+	_camera.near = 0.03
+	add_child(_camera)
+	_camera.current = true
+
+	# Flashlight held just below and right of the camera, like the player's.
+	_flashlight = SpotLight3D.new()
+	_flashlight.light_color = Color(1, 0.94, 0.8)
+	_flashlight.light_energy = 3.0
+	_flashlight.light_volumetric_fog_energy = 1.5
+	_flashlight.shadow_enabled = true
+	_flashlight.spot_range = 14.0
+	_flashlight.spot_angle = 24.0
+	_flashlight.spot_attenuation = 1.2
+	_flashlight.spot_angle_attenuation = 1.6
+	_flashlight.position = Vector3(0.18, -0.15, -0.1)
+	_camera.add_child(_flashlight)
+
+
+func _box(center: Vector3, size: Vector3, material: Material) -> void:
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.material_override = material
+	mesh.position = center
+	add_child(mesh)

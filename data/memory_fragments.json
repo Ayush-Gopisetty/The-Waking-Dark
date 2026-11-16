@@ -1,0 +1,269 @@
+{
+  "half_burned_id": {
+    "title": "Flashback 1: the ambush",
+    "lines": [
+      {
+        "speaker": "Jason",
+        "text": "Hale. Jason Hale. A detective's ID, half eaten by the fire.",
+        "duration": 4.0
+      },
+      {
+        "speaker": "",
+        "text": "A corridor. Footsteps behind you, fast. You start to turn.",
+        "duration": 4.0
+      },
+      {
+        "speaker": "",
+        "text": "A blurred figure. No face. A hand raised high, holding something heavy.",
+        "duration": 4.5
+      },
+      {
+        "speaker": "",
+        "text": "Then the floor, rushing up. Then nothing.",
+        "duration": 3.0
+      }
+    ],
+    "after": [
+      {
+        "speaker": "Jason",
+        "text": "Someone did this to me. And left me here to die.",
+        "duration": 3.5
+      }
+    ]
+  },
+  "daniel_meeting": {
+    "title": "Cutscene: meeting Daniel",
+    "style": "scene",
+    "lines": [
+      {
+        "speaker": "",
+        "text": "A man by the candles. Tall, dark coat, one hand wrapped in a bandage. He goes very still when he sees you.",
+        "duration": 5.0,
+        "shot": "wide",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "...You. You're alive.",
+        "duration": 2.5,
+        "shot": "daniel_close",
+        "daniel": "startle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "Easy. You're hurt. Do you... remember anything? Where you are? Who you are?",
+        "duration": 5.0,
+        "shot": "wide",
+        "daniel": "calm",
+        "approach": true
+      },
+      {
+        "speaker": "Jason",
+        "text": "My name. Jason Hale. That's all I've got.",
+        "duration": 4.0,
+        "shot": "jason_right",
+        "jason": "touch_head"
+      },
+      {
+        "speaker": "",
+        "text": "Something in his shoulders loosens.",
+        "duration": 2.5,
+        "shot": "daniel_close",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "Good. I mean, that's... not good. I'm Daniel. Daniel Mercer. Stay close. I'll get us out of here.",
+        "duration": 5.5,
+        "shot": "daniel",
+        "daniel": "talk"
+      },
+      {
+        "speaker": "Jason",
+        "text": "Your hand.",
+        "duration": 2.0,
+        "shot": "jason",
+        "jason": "point"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "This? Cut it on a door. It's nothing.",
+        "duration": 3.0,
+        "shot": "hand",
+        "daniel": "show_hand"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "They don't like the light. Or the candles. Use that.",
+        "duration": 3.5,
+        "shot": "daniel_close",
+        "daniel": "talk"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "The east wing door's locked. If there's a key, it's in the library, through the west door. Go on. I'll watch the door.",
+        "duration": 6.0,
+        "shot": "wide",
+        "daniel": "point",
+        "at": "west_door"
+      }
+    ]
+  },
+  "daniel_meeting_unknown": {
+    "title": "Cutscene: meeting Daniel (before the ID)",
+    "style": "scene",
+    "lines": [
+      {
+        "speaker": "",
+        "text": "A man by the candles. Tall, dark coat, one hand wrapped in a bandage. He goes very still when he sees you.",
+        "duration": 5.0,
+        "shot": "wide",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "...You. You're alive.",
+        "duration": 2.5,
+        "shot": "daniel_close",
+        "daniel": "startle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "Easy. You're hurt. Do you... remember anything? Where you are? Who you are?",
+        "duration": 5.0,
+        "shot": "wide",
+        "daniel": "calm",
+        "approach": true
+      },
+      {
+        "speaker": "Jason",
+        "text": "No. Nothing. I don't even know my own name.",
+        "duration": 4.0,
+        "shot": "jason_right",
+        "jason": "touch_head"
+      },
+      {
+        "speaker": "",
+        "text": "Something in his shoulders loosens.",
+        "duration": 2.5,
+        "shot": "daniel_close",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "Good. I mean, that's... not good. I'm Daniel. Daniel Mercer. Stay close. I'll get us out of here.",
+        "duration": 5.5,
+        "shot": "daniel",
+        "daniel": "talk"
+      },
+      {
+        "speaker": "Jason",
+        "text": "Your hand.",
+        "duration": 2.0,
+        "shot": "jason",
+        "jason": "point"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "This? Cut it on a door. It's nothing.",
+        "duration": 3.0,
+        "shot": "hand",
+        "daniel": "show_hand"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "They don't like the light. Or the candles. Use that.",
+        "duration": 3.5,
+        "shot": "daniel_close",
+        "daniel": "talk"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "The east wing door's locked. If there's a key, it's in the library, through the west door. Go on. I'll watch the door.",
+        "duration": 6.0,
+        "shot": "wide",
+        "daniel": "point",
+        "at": "west_door"
+      }
+    ]
+  },
+  "case_file_carter": {
+    "title": "Case file 1",
+    "style": "document",
+    "lines": [
+      {
+        "speaker": "",
+        "text": "MISSING PERSON. Emily Carter, age 16. Last seen near the old Ashgrove estate.",
+        "duration": 4.5
+      },
+      {
+        "speaker": "",
+        "text": "Status: CLOSED, UNSOLVED. No evidence of foul play.",
+        "duration": 3.5
+      },
+      {
+        "speaker": "",
+        "text": "In the margin, in handwriting you somehow know is yours: \"She's not the first. They're all here.\"",
+        "duration": 5.0
+      }
+    ],
+    "after": [
+      {
+        "speaker": "Jason",
+        "text": "My handwriting. I worked this case.",
+        "duration": 3.0
+      }
+    ]
+  },
+  "child_drawing": {
+    "title": "A child's drawing",
+    "style": "document",
+    "lines": [
+      {
+        "speaker": "",
+        "text": "A child's drawing in crayon. A little girl holding hands with a tall man. Around them, grey figures with no faces.",
+        "duration": 5.5
+      },
+      {
+        "speaker": "",
+        "text": "The figures are all smiling at her.",
+        "duration": 3.0
+      }
+    ],
+    "after": [
+      {
+        "speaker": "Jason",
+        "text": "...Why does this make my chest hurt?",
+        "duration": 3.0
+      }
+    ]
+  },
+  "east_wing_moon": {
+    "title": "Cutscene: the moon turns",
+    "style": "scene",
+    "lines": [
+      {
+        "speaker": "",
+        "text": "The lock gives. Through the high window, the moon is changing. The cold blue bleeds slowly into orange.",
+        "duration": 5.5,
+        "shot": "moon",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "",
+        "text": "Somewhere below, the chanting swells.",
+        "duration": 3.0,
+        "shot": "wide",
+        "daniel": "idle"
+      },
+      {
+        "speaker": "Daniel",
+        "text": "After you.",
+        "duration": 3.0,
+        "shot": "daniel",
+        "daniel": "after_you",
+        "at": "east_door"
+      }
+    ]
+  }
+}

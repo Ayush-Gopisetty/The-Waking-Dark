@@ -1,0 +1,16 @@
+# Godot 4
+.godot/
+*.translation
+export_credentials.cfg
+
+# Exported builds
+builds/*
+!builds/.gitkeep
+
+# macOS
+.DS_Store
+
+# Unused: the dialogue portraits were removed and Daniel's face is now in his model.
+assets/portraits/
+shaders/portrait_face.gdshader
+shaders/portrait_face.gdshader.uid

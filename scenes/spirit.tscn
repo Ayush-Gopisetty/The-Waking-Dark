@@ -1,0 +1,45 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/spirit.gd" id="1_spirit"]
+[ext_resource type="Script" path="res://scripts/monster_body.gd" id="2_body"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_spirit"]
+radius = 0.35
+height = 1.9
+
+[node name="Spirit" type="CharacterBody3D" groups=["spirits"]]
+collision_layer = 16
+collision_mask = 5
+script = ExtResource("1_spirit")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
+shape = SubResource("CapsuleShape3D_spirit")
+
+[node name="Body" type="Node3D" parent="."]
+script = ExtResource("2_body")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+path_desired_distance = 0.5
+target_desired_distance = 0.6
+path_height_offset = 0.0
+radius = 0.375
+height = 1.9
+
+[node name="Drone" type="AudioStreamPlayer3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+volume_db = -2.0
+unit_size = 3.0
+max_distance = 22.0
+
+[node name="Voice" type="AudioStreamPlayer3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+volume_db = 2.0
+unit_size = 6.0
+max_distance = 40.0
+
+[node name="Steps" type="AudioStreamPlayer3D" parent="."]
+volume_db = 4.0
+unit_size = 4.0
+max_distance = 18.0
+pitch_scale = 0.55
