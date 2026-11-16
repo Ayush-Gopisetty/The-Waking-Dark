@@ -38,6 +38,11 @@ func _on_scene_started(_fragment_id: String) -> void:
 		return
 	active = true
 	GameState.third_person = true
+	# The screen is black right now: move any nearby spirit away so it isn't
+	# standing frozen in the shots (spirits don't move during cutscenes).
+	for spirit: Spirit in get_tree().get_nodes_in_group("spirits"):
+		if spirit.global_position.distance_to(player.global_position) < 10.0:
+			spirit.banish_from(player.global_position)
 	var jason := player.body
 	if jason != null:
 		jason.first_person = false

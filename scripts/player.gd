@@ -142,6 +142,7 @@ func _process(delta: float) -> void:
 		body.grip_point = Vector3.INF
 		body.id_read_point = Vector3.INF
 		body.id_eye = Vector3.INF
+	body.holding = flashlight.owned
 	_hold_flashlight()
 
 
@@ -161,14 +162,20 @@ func _hold_flashlight() -> void:
 	var sk := body.skeleton
 	_held.visible = flashlight.owned and body.visible and sk != null
 	if not _held.visible:
-		flashlight.position = BEAM_FALLBACK
+		flashlight.transform = Transform3D(Basis.IDENTITY, BEAM_FALLBACK)
 		return
 	# Rigidly in the grip: wherever the hand actually is this frame, the barrel
 	# runs through the curled fingers, so it can't drift through them.
 	_held.global_transform = body.held_transform(FLASHLIGHT_GRIP.z)
 	# The beam starts at the lens (still aimed straight down the view).
 	var lens: Vector3 = _held.global_transform * FLASHLIGHT_LENS
-	flashlight.position = camera.global_transform.affine_inverse() * lens if body.first_person else BEAM_FALLBACK
+	if body.first_person:
+		# First person: from the lens, aimed straight down the view (gameplay aim).
+		flashlight.transform = Transform3D(Basis.IDENTITY, camera.global_transform.affine_inverse() * lens)
+	else:
+		# Cutscenes: the beam goes wherever the flashlight in his hand points
+		# (a spotlight shines along its -Z; the model's lens faces +Z).
+		flashlight.global_transform = Transform3D(_held.global_basis.orthonormalized() * Basis(Vector3.UP, PI), lens)
 	var glow := 0.0
 	if flashlight.is_lighting():
 		glow = 6.0 if flashlight.bright else 2.0

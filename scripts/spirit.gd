@@ -252,6 +252,24 @@ func _enter_search(center: Vector3) -> void:
 	_pick_search_point()
 
 
+## Sends it to the far end of its patrol, out of sight (used while the screen is
+## black at the start of a cutscene, so it isn't frozen at Jason's shoulder).
+func banish_from(pos: Vector3) -> void:
+	var best := global_position
+	var best_distance := -1.0
+	for point: Vector3 in GameState.patrol_zone(zone):
+		var d := point.distance_to(pos)
+		if d > best_distance:
+			best_distance = d
+			best = point
+	global_position = best
+	velocity = Vector3.ZERO
+	_see_time = 0.0
+	weaken_progress = 0.0
+	_lit_by_bright = false
+	_enter_patrol()
+
+
 func _enter_retreat(player: Player) -> void:
 	_set_state(State.RETREAT)
 	weaken_progress = 0.0

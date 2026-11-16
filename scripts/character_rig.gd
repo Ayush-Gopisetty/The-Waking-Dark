@@ -93,12 +93,20 @@ const GRIP_DEPTH := 0.032
 ## How far toward the knuckles the barrel sits (0 wrist, 1 knuckles).
 const GRIP_ALONG := 0.8
 ## Most the wrist bends (radians) to aim the barrel beyond what the forearm gives.
-const GRIP_WRIST_MAX := 1.2
+const GRIP_WRIST_MAX := 0.5
+## Where the elbow points while holding the light, from the wrist (skeleton space:
+## -X is his right, -Y down, +Z forward).
+const GRIP_ELBOW := Vector3(-0.3, -0.65, -0.1)
 ## Barrel angle across the fist (radians from square to the knuckles).
 const GRIP_OBLIQUE := 0.45
 ## Thumb joint's distance from the barrel axis (barrel radius + thumb, skeleton units).
 const GRIP_THUMB_REST := 0.028
 var _grip_basis := Basis.IDENTITY
+## The right forearm's direction last frame (skeleton space), for rolling the grip.
+var _grip_forearm := Vector3(0.4, 0.75, 0.5).normalized()
+## True while the right hand carries the flashlight (any gesture): the fingers
+## stay wrapped round it, and one-handed gestures use the left hand instead.
+var holding := false
 
 ## Name shown on subtitles for this character ("Daniel"); their lines move the jaw.
 @export var speaker_name := ""
@@ -407,6 +415,9 @@ func play(gesture_name: String, target := Vector3.INF) -> void:
 	if next == Gesture.TALK and gesture != Gesture.TALK:
 		_talk_hand = "R" if randf() < 0.65 else "L"
 		_talk_style = randi() % 3
+		if holding:  # the flashlight hand stays down; no two-handed explaining
+			_talk_hand = "L"
+			_talk_style = [0, 2].pick_random()
 	if next != Gesture.IDLE:
 		_fidget = ""
 	gesture = next
@@ -658,7 +669,18 @@ func _pose(delta: float) -> void:
 			roll = clampf(wrapf(roll, -PI, PI), -2.2, 2.2)
 			_twist["R"] = roll
 			_rotate_global(lower, Basis(f, roll))
-			_set_global_basis(hb, _grip_basis)
+			# Keep the wrist within a comfortable bend: past GRIP_WRIST_MAX the hand
+			# (and the flashlight with it) follows the forearm instead.
+			var want_hand := _grip_basis
+			var fore_dir := (skeleton.get_bone_global_pose(hb).origin - skeleton.get_bone_global_pose(lower).origin).normalized()
+			_grip_forearm = fore_dir
+			var fingers := want_hand.y.normalized()
+			var bend := fore_dir.angle_to(fingers)
+			if bend > GRIP_WRIST_MAX:
+				var ax := fingers.cross(fore_dir)
+				if ax.length() > 0.0001:
+					want_hand = Basis(ax.normalized(), bend - GRIP_WRIST_MAX) * want_hand
+			_set_global_basis(hb, want_hand)
 		else:
 			_orient_hand(side, s)
 		_curl_fingers(side, s, t)
@@ -780,8 +802,10 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 			# the back of the head (a small wince and rub), then forward to look at the
 			# fingers for blood, and down again.
 			var rub := sin(_gesture_time * 6.0) * 0.012
-			out["R"] = _track(_gesture_time, [
-				[0.0, out["R"]],
+			# With the flashlight in his right hand, he uses the left (mirrored).
+			var h := "L" if holding else "R"
+			out[h] = _mirror_arm(_track(_gesture_time, [
+				[0.0, _mirror_arm(out[h], holding)],
 				[0.55, _arm(Vector3(-0.27, 1.22, 0.24), Vector3(-0.8, 0.9, -0.1), Vector3(0.6, 0.3, 0.6), 0.4)],
 				[1.0, _arm(Vector3(-0.2, 1.66, 0.04), Vector3(-0.9, 1.5, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
 				[1.5, _arm(Vector3(-0.07, 1.63 + rub, -0.1), Vector3(-0.85, 1.75, 0.3), Vector3(0.2, -0.1, 1.0), 0.55)],
@@ -789,8 +813,8 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 				[2.6, _arm(Vector3(-0.17, 1.6, 0.12), Vector3(-0.85, 1.45, 0.25), Vector3(0.5, 0.2, 0.4), 0.5)],
 				[3.1, _arm(Vector3(-0.1, 1.42, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.45)],
 				[3.65, _arm(Vector3(-0.11, 1.4, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.5)],
-				[4.45, out["R"]],
-			])
+				[4.45, _mirror_arm(out[h], holding)],
+			]), holding)
 		Gesture.AFTER_YOU:
 			# An open palm toward the door, with a small bow.
 			_blend(out, "R", _arm(Vector3(-0.42, 1.08, 0.38), Vector3(-0.6, 0.8, -0.4), Vector3(0.2, 1, 0.1), 0.2), _envelope(0.4, 0.0))
@@ -800,12 +824,23 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 				# must the hand turn, for the palm to sit against the barrel with
 				# the index finger toward the lens?
 				var basis := _grip_basis_skel()
+				# Roll the hand round the barrel so the fingers line up as closely as
+				# possible with the forearm (last frame's): the straightest wrist that
+				# still points the light down the view.
+				var a := (basis * _grip_axis_local()).normalized()
+				var y := basis.y.normalized()
+				var yp := y - a * y.dot(a)
+				var fp := _grip_forearm - a * _grip_forearm.dot(a)
+				if yp.length() > 0.01 and fp.length() > 0.01:
+					basis = (Basis(a, yp.normalized().signed_angle_to(fp.normalized(), a)) * basis).orthonormalized()
 				var axis := skeleton.global_transform.affine_inverse() * grip_point
 				var wrist := axis - basis * (_grip_center_local())
 				_grip_basis = basis
 				# Put the elbow where the forearm lines up behind the hand (as near
 				# as the arm allows), so the wrist stays nearly straight.
-				var pole := wrist - (basis * Vector3.UP).normalized() * 0.35 + Vector3(-0.12, -0.05, 0.0)
+				# Elbow down and out to his right side, a little back: the natural way
+				# to hold a light up in front of you (not tucked under the chin).
+				var pole := wrist + GRIP_ELBOW
 				out["R"] = _arm(wrist, pole, basis * _palm_local["R"], GRIP_CURL)
 			elif gesture_target != Vector3.INF:
 				var local := skeleton.global_transform.affine_inverse() * gesture_target
@@ -916,6 +951,14 @@ func _fidget_arms(out: Dictionary) -> void:
 			_blend(out, b, _arm(Vector3(bx * 0.14, 1.03, 0.25), Vector3(bx * 0.7, 0.9, -0.3), Vector3(-bx * 0.3, 0.8, 0.2), curl), env)
 
 
+## The same arm pose for the other hand (mirrored across the body), if `flip`.
+func _mirror_arm(pose: Dictionary, flip: bool) -> Dictionary:
+	if not flip:
+		return pose
+	var m := Vector3(-1, 1, 1)
+	return {"hand": pose.hand * m, "pole": pose.pole * m, "palm": pose.palm * m, "curl": pose.curl, "point": pose.point}
+
+
 ## Eases through keyed arm poses: [[seconds, pose], ...] (the first and last are
 ## usually the relaxed pose, so the motion starts and ends at rest).
 func _track(time: float, keys: Array) -> Dictionary:
@@ -988,7 +1031,10 @@ func _orient_hand(side: String, s: String) -> void:
 		var raw := have.signed_angle_to(want.normalized(), axis)
 		goal = clampf(_twist[s] + wrapf(raw - _twist[s], -PI, PI), -2.4, 2.4)
 	# A wrist turns at a human speed, never in one frame.
-	var angle := move_toward(_twist[s], goal, 5.0 * maxf(_dt, 1.0 / 120.0)) if _initialised else goal
+	# Eased: it speeds up and slows down like a real forearm rather than spinning
+	# at a fixed rate (which read as the hand flicking round).
+	var step := maxf(_dt, 1.0 / 120.0)
+	var angle := _twist[s] + clampf((goal - _twist[s]) * minf(1.0, 5.0 * step), -2.6 * step, 2.6 * step) if _initialised else goal
 	_twist[s] = angle
 	_rotate_global(lower, Basis(axis, angle))
 	# Whatever the twist can't reach, the wrist bends for (up to ~55 degrees),
@@ -1022,7 +1068,7 @@ const FINGER_SPREAD := {"Index": 1.0, "Middle": 0.15, "Ring": -0.55, "Little": -
 func _curl_fingers(side: String, s: String, t: float) -> void:
 	var x := 1.0 if s == "L" else -1.0
 	var curl := _finger[s]
-	if s == "R" and gesture == Gesture.FLASHLIGHT and grip_point != Vector3.INF:
+	if s == "R" and holding:
 		_grip_fingers(curl)
 		return
 	# Open hands fan the fingers a little; curled ones draw them together.
