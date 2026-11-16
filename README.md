@@ -20,17 +20,26 @@ you in the dark, you lose (with a retry from the last checkpoint).
    so push it twice.
 2. **Servants' hall:** a long corridor with side rooms and one slow spirit. Battery #1 is
    on a shelf. The **furnace key** hangs in the storage room behind the spirit's route.
-   Hide in the storage room or kitchen pantry.
-3. **Furnace room:** the half-burned ID (flashback 1). Then the spirit blocks the door, and
-   the bright beam drives it off.
-4. **Foyer:** up the service stairs. **Daniel** is waiting by the candles (cutscene).
-   Candles are safe, and spirits keep away from Daniel. There's a mirror, battery #2 and a
-   wardrobe; the front doors are chained.
-5. **Library:** case file 1 (Emily Carter) and a child's drawing on the desk, and humming
-   behind the wall. The **east wing key** is in a locked glass case. The **drawer key** is
-   on a shelf and only shows up in the bright beam. Taking the east wing key sets off a
-   chase back to the foyer.
-6. **East wing door:** Daniel is waiting. The moon turns orange. "After you." End of Act 1.
+   Hide in the storage room, the kitchen pantry or the servants' quarters.
+3. **Furnace room:** the half-burned ID (Jason holds it up and reads it, then flashback 1).
+   Then the spirit blocks the door, and the bright beam drives it off.
+4. **Servants' quarters:** the **stairs key** is on the table between the beds. The service
+   stairs are locked without it.
+5. **Parlour:** at the top of the stairs. Candle-lit from end to end, so no spirit comes in.
+   **Daniel** is waiting here (cutscene) and keeps watch by the door afterwards.
+6. **Foyer:** dark, with two candle-lit pockets and a spirit circling. A mirror, battery #2
+   and a wardrobe; the front doors are chained.
+7. **Gallery:** east of the foyer. Portraits, moonlight, and the **study key** on a plinth.
+8. **Study** (off the corridor, locked): the **drawer key** is tucked into the bookshelf and
+   only shows up in the bright beam. **Dining room** (opposite): a battery and a wardrobe.
+9. **Library:** case file 1 (Emily Carter) and a child's drawing on the desk, and humming
+   behind the wall. The **east wing key** is in a locked glass case that the drawer key
+   opens. Taking it sets off a chase back to the foyer.
+10. **East wing door:** Daniel is waiting. The moon turns orange. "After you." End of Act 1.
+
+**Hiding:** inside a wardrobe you look out through the gap between the doors and the slats.
+You can switch the flashlight on in there, but a spirit close by will see the light and
+come for you.
 
 | Key | Action |
 |---|---|

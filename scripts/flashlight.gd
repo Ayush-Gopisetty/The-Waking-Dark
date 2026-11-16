@@ -34,6 +34,7 @@ var on := false
 var bright := false
 var battery := 100.0
 var exposure := 0.0
+var _warned_hiding := false
 
 
 func _ready() -> void:
@@ -44,10 +45,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not owned or GameState.ended or GameState.cutscene:
 		return
 	var p := GameState.player
-	if p != null and p.hidden:
-		return
 	if event.is_action_pressed("flashlight"):
 		set_on(not on)
+		if on and p != null and p.hidden and not _warned_hiding:
+			# Allowed, but it gives you away.
+			_warned_hiding = true
+			GameState.hint("The light shows through the gaps. Anything close by will see it.", 6.0)
 	elif event.is_action_pressed("bright") and not on:
 		set_on(true)
 

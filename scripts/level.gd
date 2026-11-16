@@ -23,10 +23,17 @@ extends NavigationRegion3D
 ##                               | Kitchen  |
 ##                               +----------+
 ##
-## Key chain (plan): furnace key (storage, behind the hall spirit's route) ->
-## furnace door; drawer key (library shelf, only visible in the bright beam)
-## -> glass display case; east wing key (in the case) -> east wing door.
-## [x] chained front doors. tools/validate_keys.tscn checks the chain.
+## Added since the plan (not drawn above): servants' quarters (downstairs,
+## x 10..16, z 6..11, off the hall); and upstairs the parlour (x 6.5..13.5,
+## z -5..-1, at the top of the service stairs: candle-lit, Daniel waits here),
+## the gallery (x 16..22, z -5..-1, east of the foyer), the study (x -6..2,
+## z -14..-10) and the dining room (x -6..2, z -6..-2), both off the corridor.
+##
+## Key chain: furnace key (storage) -> furnace door (the ID); stairs key
+## (servants' quarters) -> service stairs door -> parlour (Daniel); study key
+## (gallery) -> study; drawer key (study shelf, only visible in the bright
+## beam) -> glass display case (library); east wing key (in the case) -> east
+## wing door. [x] chained front doors. tools/validate_keys.tscn checks the chain.
 ##
 ## Everything solid is a child of this node so the navmesh bakes from it.
 
@@ -39,8 +46,10 @@ const SPIRIT_SCENE := preload("res://scenes/spirit.tscn")
 const START_ROOM := "abandoned_room"
 const GOAL_ROOM := "east_wing"
 
-const DANIEL_MEET := Vector3(5.5, UPSTAIRS, -6.5)
-const DANIEL_WATCH := Vector3(3.2, UPSTAIRS, -9.6)
+## Daniel waits in the parlour (candle-lit: no spirit will come in), and
+## afterwards keeps watch by its door.
+const DANIEL_MEET := Vector3(8.0, UPSTAIRS, -3.8)
+const DANIEL_WATCH := Vector3(11.7, UPSTAIRS, -4.1)
 const DANIEL_EAST_WING := Vector3(14.6, UPSTAIRS, -8.8)
 const FURNACE_BLOCK := Vector3(15.2, 0.0, 4.5)
 
@@ -53,9 +62,8 @@ var display_case: DisplayCase
 
 ## Doorless connections (the service stairs), for the key-graph check.
 var _open_links := {
-	"servants_hall": ["service_stairs"],
-	"service_stairs": ["servants_hall", "foyer"],
-	"foyer": ["service_stairs"],
+	"service_stairs": ["parlour"],
+	"parlour": ["service_stairs"],
 }
 var _room_floor: Dictionary = {}
 var _y := 0.0  # floor height of the rooms currently being built
@@ -90,18 +98,23 @@ func _ready() -> void:
 	_build_storage()
 	_build_kitchen()
 	_build_furnace_room()
+	_build_servants_quarters()
 	_build_service_stairs()
 	_y = UPSTAIRS
 	_surface("plaster", "oak")
 	_build_foyer()
+	_build_parlour()
+	_build_gallery()
 	_build_corridor()
+	_build_study()
+	_build_dining_room()
 	_build_library()
 	_build_east_wing()
 	_y = 0.0
 	GameState.restore_level(self)
 	_bake_navigation()
 	_spawn_spirit("hall", Vector3(12, 0, 4.5))
-	_spawn_spirit("foyer", Vector3(13, UPSTAIRS, -4))
+	_spawn_spirit("foyer", Vector3(13, UPSTAIRS, -8.8))
 	_spawn_spirit("library", Vector3(-11.8, UPSTAIRS, -5.75))
 	_start_audio()
 	_start_dust.call_deferred()
@@ -193,16 +206,16 @@ func _build_abandoned_room() -> void:
 func _build_servants_hall() -> void:
 	_room("servants_hall", Vector2(0, 3), Vector2(16, 6))
 	_wall(Vector2(0, 3), Vector2(16, 3), [3.0, 10.0])  # north: storage, service stairs
-	_wall(Vector2(0, 6), Vector2(16, 6), [7.0])        # south: kitchen
+	_wall(Vector2(0, 6), Vector2(16, 6), [7.0, 13.0])  # south: kitchen, servants' quarters
 
 	_prop("shelf", Vector3(6.8, 0, 3.22), Vector3(0.8, 1.6, 0.22), 0.0, true, true)
 	_pickup(Pickup.Kind.BATTERY, Vector3(6.8, 1.6, 3.22))  # battery #1, on top of the shelf
-	_prop("crate", Vector3(13.6, 0, 5.68), Vector3(0.85, 0.36, 0.42), PI)  # crates
-	Props.place(self, "crate", Vector3(13.65, _y + 0.36, 5.7), Vector3(0.85, 0.36, 0.42), PI + 0.12)
-	_solid(Vector3(13.6, 0.36, 5.68), Vector3(0.9, 0.72, 0.45))
+	_prop("crate", Vector3(15.1, 0, 5.68), Vector3(0.85, 0.36, 0.42), PI)  # crates
+	Props.place(self, "crate", Vector3(15.15, _y + 0.36, 5.7), Vector3(0.85, 0.36, 0.42), PI + 0.12)
+	_solid(Vector3(15.1, 0.36, 5.68), Vector3(0.9, 0.72, 0.45))
 	_prop("chair", Vector3(1.4, 0, 5.62), Vector3(0.6, 1.3, 0.6), PI)
 	_prop("painting", Vector3(4.6, 1.45, 3.11), Vector3(0.7, 0.55, 0.03), 0.0, false)
-	_prop("painting", Vector3(12.4, 1.5, 5.89), Vector3(0.7, 0.55, 0.03), PI, false)
+	_prop("painting", Vector3(11.2, 1.5, 5.89), Vector3(0.7, 0.55, 0.03), PI, false)
 
 	# No music in the abandoned room; the tension track starts here.
 	_story_trigger(Vector2(0.6, 3.4), Vector2(2.5, 5.6), "", "", func() -> void: _music_on = true)
@@ -268,8 +281,36 @@ func _build_furnace_room() -> void:
 	_surface("damaged", "planks")
 
 
-## The service stairs from the hall up to the foyer (a ramp under the steps).
+## Servants' quarters, off the hall: two beds, a wardrobe to hide in, and the
+## key to the service stairs on the table between the beds.
+func _build_servants_quarters() -> void:
+	_room("servants_quarters", Vector2(10, 6), Vector2(16, 11))
+	_wall(Vector2(10, 11), Vector2(16, 11))
+	_wall(Vector2(16, 7), Vector2(16, 11))  # (the furnace room's wall covers z 6..7)
+	_door(Vector2(13.0 - DOOR_WIDTH * 0.5, 6), 0.0, -90.0, "servants_hall", "servants_quarters")
+	for x: float in [10.95, 15.05]:
+		var bed := _prop("bed", Vector3(x, 0, 9.75), Vector3(1.5, 1.55, 2.06), 0.0, false)
+		var mattress := Props.top_height(bed, 0.3)
+		_solid(Vector3(x, mattress * 0.5, 9.75), Vector3(1.5, mattress, 2.06))
+	_box(Vector3(13.0, 0.35, 10.6), Vector3(0.7, 0.7, 0.5), _wood_material)  # table between the beds
+	var key := _pickup(Pickup.Kind.KEY, Vector3(13.0, 0.71, 10.6), "stairs_key")
+	key.line = "A key on a loop of string. The tag says STAIRS."
+	_prop("chair", Vector3(12.0, 0, 10.5), Vector3(0.5, 1.15, 0.5), PI - 0.4)
+	_rug(Vector2(13.0, 8.6), Vector2(2.0, 1.4))
+	_wardrobe(Vector3(15.5, 0, 7.7), PI / 2.0)  # hiding spot 3 of the hall
+	_pickup(Pickup.Kind.BATTERY, Vector3(10.5, 0.06, 6.6))
+	_examinable(Vector3(10.14, 1.5, 7.6), "Look at the rota", "Jason",
+		"A duty rota, still pinned up. Names and hours, and then nothing. Nobody ever took it down.",
+		Vector3(0.3, 0.6, 0.8))
+	_box(Vector3(10.12, 1.5, 7.6), Vector3(0.01, 0.4, 0.3), _paper_material(), false)
+	_patrol("hall", Vector3(13.0, 0, 8.4))
+
+
+## The service stairs from the hall up to the parlour (a ramp under the steps).
+## The door at the bottom is locked; the key is in the servants' quarters.
 func _build_service_stairs() -> void:
+	var stairs_door := _door(Vector2(10.0 - DOOR_WIDTH * 0.5, 3), 0.0, -90.0, "servants_hall", "service_stairs", "stairs_key")
+	stairs_door.locked_line = "Locked. The servants' stairs. One of the staff would have kept a key."
 	_room("service_stairs", Vector2(9.35, -1), Vector2(10.65, 3), false)
 	_wall(Vector2(9.35, -1), Vector2(9.35, 3), [], UPSTAIRS + WALL_HEIGHT)
 	_wall(Vector2(10.65, -1), Vector2(10.65, 3), [], UPSTAIRS + WALL_HEIGHT)
@@ -283,13 +324,13 @@ func _build_service_stairs() -> void:
 
 # --- Upstairs ----------------------------------------------------------------------
 
-## 4. Foyer: candle-lit. Daniel waits here. A spirit circles but won't enter
-## the candlelight, and keeps away from Daniel.
+## 4. Foyer: dark, with two candle-lit pockets. A spirit circles it but won't
+## enter the candlelight. The parlour (Daniel) opens off its south side.
 func _build_foyer() -> void:
 	_room("foyer", Vector2(2, -13), Vector2(16, -1))
 	_wall(Vector2(2, -13), Vector2(16, -13), [11.5])  # north: chained front doors
 	_wall(Vector2(2, -13), Vector2(2, -1), [5.0])     # west: corridor (z = -8)
-	_wall(Vector2(16, -13), Vector2(16, -1), [6.0])   # east: east wing (z = -7)
+	_wall(Vector2(16, -13), Vector2(16, -1), [6.0, 10.0])  # east: east wing (z = -7), gallery (z = -3)
 	_wall(Vector2(2, -1), Vector2(16, -1), [8.0])     # south: service stairs (x = 10)
 
 	var front := _door(Vector2(13.5 - DOOR_WIDTH * 0.5, -13), 0.0, 90.0, "foyer", "outside")
@@ -306,16 +347,13 @@ func _build_foyer() -> void:
 		_box(Vector3(9.0 + side * 1.85, 1.3, -10.8), Vector3(0.08, 0.9, 3.4), _wood_material, false)
 	_box(Vector3(5.0, WALL_HEIGHT * 0.5, -11.0), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
 	_box(Vector3(12.4, WALL_HEIGHT * 0.5, -10.6), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
-	_box(Vector3(10.0, 0.25, -5.8), Vector3(1.6, 0.5, 1.2), _metal_material)  # fallen chandelier
+	_box(Vector3(7.6, 0.25, -7.2), Vector3(1.6, 0.5, 1.2), _metal_material)  # fallen chandelier
 	_box(Vector3(14.6, 0.5, -2.0), Vector3(1.4, 1.0, 0.6), _wood_material)    # bench
-	_prop("clock", Vector3(15.66, 0, -3.6), Vector3(0.45, 2.2, 0.65), -PI / 2.0)
-	_rug(Vector2(9.6, -5.6), Vector2(3.6, 2.6))
+	_rug(Vector2(12.2, -7.0), Vector2(3.0, 2.2))
 	_prop("painting", Vector3(16 - 0.11, 1.55, -11.2), Vector3(0.03, 0.6, 0.8), -PI / 2.0, false)
 
-	# Candles: the safe pockets. One at the top of the stairs, one where Daniel
-	# waits, one by the east wing door.
-	_candles(Vector3(8.7, 0.9, -1.4), Vector3(8.4, 0, -3.4), Vector3(11.6, WALL_HEIGHT, -1))
-	_box(Vector3(8.7, 0.45, -1.4), Vector3(0.6, 0.9, 0.4), _wood_material)
+	# Candles: the safe pockets out in the foyer. One in the west half, one by
+	# the east wing door. (The parlour is lit throughout.)
 	_candles(Vector3(5.5, 1.05, -5.2), Vector3(3.9, 0, -8.1), Vector3(7.1, WALL_HEIGHT, -4.9))
 	_box(Vector3(5.5, 0.5, -5.2), Vector3(0.5, 1.0, 0.5), _wood_material)
 	_candles(Vector3(15.6, 1.05, -8.6), Vector3(13.8, 0, -9.0), Vector3(16, WALL_HEIGHT, -5.4))
@@ -334,43 +372,142 @@ func _build_foyer() -> void:
 	_wardrobe(Vector3(2.5, 0, -11.9), -PI / 2.0)  # hiding spot
 	_pickup(Pickup.Kind.BATTERY, Vector3(15.3, 0.06, -12.3))  # battery #2, dark corner
 
-	daniel = Daniel.new()
-	add_child(daniel)
-	daniel.global_position = DANIEL_MEET
 	director = CutsceneDirector.new()
 	add_child(director)
-	director.daniel = daniel
 	director.points = {
 		"west_door": Vector3(2.0, UPSTAIRS + 1.3, -8.0),
 		"east_door": Vector3(16.0, UPSTAIRS + 1.2, -7.0),
 		"moon_window": Vector3(6.5, UPSTAIRS + 2.3, -12.88),
 	}
-	_story_trigger(Vector2(8.6, -3.4), Vector2(11.4, -1.1), "", "", _meet_daniel)
-
 	for point: Vector3 in [
-		Vector3(3.2, 0, -2.4), Vector3(13.0, 0, -3.2), Vector3(3.4, 0, -10.0),
+		Vector3(3.2, 0, -2.4), Vector3(14.7, 0, -3.7), Vector3(3.4, 0, -10.0),
 		Vector3(6.4, 0, -9.8), Vector3(13.8, 0, -11.2), Vector3(11.4, 0, -6.2),
 	]:
 		_patrol("foyer", point)
 
 
+## The parlour, at the top of the service stairs: candle-lit from end to end,
+## so no spirit comes in. Daniel is waiting here (cutscene), and keeps watch by
+## the door afterwards. A safe room to come back to.
+func _build_parlour() -> void:
+	_rooms_add("parlour", Vector2(6.5, -5), Vector2(13.5, -1))  # (the foyer's floor and ceiling cover it)
+	_wall(Vector2(6.5, -5), Vector2(13.5, -5), [3.5])  # north: the foyer (door at x = 10)
+	_wall(Vector2(6.5, -5), Vector2(6.5, -1))
+	_wall(Vector2(13.5, -5), Vector2(13.5, -1))
+	_door(Vector2(10.0 - DOOR_WIDTH * 0.5, -5), 0.0, 90.0, "parlour", "foyer")
+
+	_candles(Vector3(8.7, 0.9, -1.4), Vector3(6.5, 0, -5), Vector3(13.5, WALL_HEIGHT, -1))
+	_box(Vector3(8.7, 0.45, -1.4), Vector3(0.6, 0.9, 0.4), _wood_material)
+	_box(Vector3(12.9, 0.4, -4.45), Vector3(0.8, 0.8, 0.5), _wood_material)  # side table
+	_prop("candleholders", Vector3(12.9, 0.8, -4.45), Vector3(0.7, 0.55, 0.3), 0.0, false)
+	_flicker(Vector3(12.9, 1.5, -4.3), Color(1.0, 0.68, 0.38), 1.2, 4.5, true)
+	_flicker(Vector3(7.4, 1.6, -3.0), Color(1.0, 0.68, 0.38), 0.8, 4.0, false)
+	_prop("clock", Vector3(13.16, 0, -2.6), Vector3(0.45, 2.2, 0.65), -PI / 2.0)
+	_prop("chair", Vector3(7.2, 0, -4.3), Vector3(0.6, 1.3, 0.6), 0.6)
+	_prop("chair", Vector3(7.2, 0, -1.8), Vector3(0.6, 1.3, 0.6), PI - 0.6)
+	_rug(Vector2(10.0, -3.2), Vector2(3.4, 2.2))
+	_prop("painting", Vector3(6.61, 1.55, -3.0), Vector3(0.03, 0.6, 0.8), PI / 2.0, false)
+	_prop("painting", Vector3(11.9, 1.55, -1.11), Vector3(0.8, 0.6, 0.03), PI, false)
+
+	daniel = Daniel.new()
+	add_child(daniel)
+	daniel.global_position = DANIEL_MEET
+	director.daniel = daniel
+	_story_trigger(Vector2(8.6, -3.4), Vector2(11.4, -1.1), "", "", _meet_daniel)
+
+
+## The gallery, east of the foyer: family portraits, moonlight, and the key to
+## the study on a plinth at the far end. The foyer spirit wanders in here.
+func _build_gallery() -> void:
+	_room("gallery", Vector2(16, -5), Vector2(22, -1))
+	_wall(Vector2(16, -5), Vector2(22, -5))
+	_wall(Vector2(16, -1), Vector2(22, -1))
+	_wall(Vector2(22, -5), Vector2(22, -1))
+	_door(Vector2(16, -3.0 - DOOR_WIDTH * 0.5), -PI / 2.0, 90.0, "foyer", "gallery")
+	for x: float in [17.4, 19.0, 20.6]:
+		_prop("painting", Vector3(x, 1.5, -4.89), Vector3(0.9, 0.7, 0.03), 0.0, false)
+		_prop("painting", Vector3(x, 1.5, -1.11), Vector3(0.9, 0.7, 0.03), PI, false)
+	_examinable(Vector3(19.0, 1.5, -4.8), "Look at the portrait", "Jason",
+		"A family, painted in front of this house. Someone has scratched out the faces. Every one but the child's.",
+		Vector3(1.0, 0.8, 0.3))
+	_box(Vector3(21.3, 0.5, -3.0), Vector3(0.5, 1.0, 0.5), _wood_material)  # plinth
+	var key := _pickup(Pickup.Kind.KEY, Vector3(21.3, 1.0, -3.0), "study_key")
+	key.line = "A small key on a brass fob. The fob is stamped STUDY."
+	_prop("chair", Vector3(16.7, 0, -1.6), Vector3(0.6, 1.3, 0.6), PI - 0.5)
+	_prop("crate", Vector3(18.2, 0, -1.5), Vector3(0.85, 0.36, 0.42), PI)
+	_rug(Vector2(19.0, -3.0), Vector2(4.4, 1.4))
+	_window(Vector3(21.89, 2.0, -3.0), Vector3(0.03, 1.3, 1.1))
+	_moonbeam(Vector3(21.7, 2.3, -3.0), Vector3(18.4, 0.0, -3.0), 1.5)
+	_pickup(Pickup.Kind.BATTERY, Vector3(16.5, 0.06, -4.5))
+	_patrol("foyer", Vector3(18.6, 0, -3.0))
+
+
 func _build_corridor() -> void:
 	_room("corridor", Vector2(-6, -10), Vector2(2, -6))
-	_wall(Vector2(-6, -10), Vector2(2, -10))
-	_wall(Vector2(-6, -6), Vector2(2, -6))
+	_wall(Vector2(-6, -10), Vector2(2, -10), [6.5])  # north: study (x = 0.5)
+	_wall(Vector2(-6, -6), Vector2(2, -6), [4.0])    # south: dining room (x = -2)
 	_box(Vector3(-2.0, 0.4, -9.65), Vector3(1.2, 0.8, 0.45), _wood_material)
 	_prop("oil_lamp", Vector3(-2.35, 0.8, -9.65), Vector3(0.2, 0.42, 0.2), 0.0, false)
 	_rug(Vector2(-2.0, -8.0), Vector2(6.6, 1.1))
 	_prop("painting", Vector3(-4.2, 1.45, -9.89), Vector3(0.7, 0.55, 0.03), 0.0, false)
-	_prop("painting", Vector3(0.4, 1.5, -6.11), Vector3(0.6, 0.48, 0.03), PI, false)
+	_prop("painting", Vector3(0.6, 1.5, -6.11), Vector3(0.6, 0.48, 0.03), PI, false)
 	_patrol("library", Vector3(-1.0, 0, -8.0))
 	_patrol("library", Vector3(-4.5, 0, -7.0))
 
 
+## The study, off the corridor: locked (key in the gallery). The drawer key is
+## tucked into its bookshelf and only shows in the bright beam.
+func _build_study() -> void:
+	_room("study", Vector2(-6, -14), Vector2(2, -10))
+	_wall(Vector2(-6, -14), Vector2(2, -14))
+	_wall(Vector2(2, -14), Vector2(2, -13))  # (the foyer's west wall covers z -13..-10)
+	var door := _door(Vector2(0.5 - DOOR_WIDTH * 0.5, -10), 0.0, 90.0, "corridor", "study", "study_key")
+	door.locked_line = "Locked. A brass plate on the door: STUDY."
+	_box(Vector3(-2.6, 0.4, -13.2), Vector3(1.8, 0.8, 0.8), _wood_material)  # desk
+	_prop("chair", Vector3(-2.6, 0, -12.3), Vector3(0.6, 1.3, 0.6), 0.0)
+	_prop("oil_lamp", Vector3(-1.95, 0.8, -13.3), Vector3(0.2, 0.42, 0.2), 0.0, false)
+	_box(Vector3(-2.9, 0.805, -13.1), Vector3(0.3, 0.01, 0.22), _paper_material(), false)
+	_examinable(Vector3(-2.9, 0.85, -13.1), "Read the ledger", "Jason",
+		"Household accounts. Wages for a full staff, then half of them, then nobody at all. The last line isn't a number. It says: 'She won't stop humming.'",
+		Vector3(0.4, 0.15, 0.3))
+	_prop("bookshelf", Vector3(-5.6, 0, -12.0), Vector3(0.6, 2.2, 2.2), PI / 2.0)
+	_prop("hutch", Vector3(1.55, 0, -11.6), Vector3(0.6, 2.1, 1.9), -PI / 2.0)
+	_rug(Vector2(-2.4, -11.6), Vector2(3.0, 1.8))
+	_prop("painting", Vector3(-0.6, 1.55, -13.89), Vector3(0.8, 0.6, 0.03), 0.0, false)
+	_window(Vector3(-4.2, 2.0, -13.89), Vector3(1.0, 1.2, 0.03))
+	_moonbeam(Vector3(-4.2, 2.3, -13.6), Vector3(-3.4, 0.0, -11.2), 1.2)
+
+	# The drawer key: hidden on the shelf until the bright beam finds it.
+	var drawer := _pickup(Pickup.Kind.KEY, Vector3(-5.22, 1.25, -12.0), "drawer_key")
+	drawer.hidden_until_bright = true
+	drawer.line = "A small brass key. It has to be for that glass case in the library."
+
+
+## The dining room, off the corridor: still laid for dinner. A wardrobe to hide
+## in and a battery; the library spirit drifts through.
+func _build_dining_room() -> void:
+	_room("dining_room", Vector2(-6, -6), Vector2(2, -2))
+	_wall(Vector2(-6, -2), Vector2(2, -2))
+	_door(Vector2(-2.0 - DOOR_WIDTH * 0.5, -6), 0.0, -90.0, "corridor", "dining_room")
+	_box(Vector3(-2.6, 0.4, -3.7), Vector3(4.0, 0.8, 1.1), _wood_material)  # the table
+	for x: float in [-4.0, -2.6, -1.2]:
+		_prop("chair", Vector3(x, 0, -4.6), Vector3(0.5, 1.2, 0.5), 0.0)
+		_prop("chair", Vector3(x + 0.15, 0, -2.8), Vector3(0.5, 1.2, 0.5), PI + 0.2)
+	_prop("candleholders", Vector3(-2.6, 0.8, -3.7), Vector3(0.9, 0.6, 0.3), 0.0, false)
+	_pickup(Pickup.Kind.BATTERY, Vector3(-4.2, 0.81, -3.7))
+	_examinable(Vector3(-1.4, 0.9, -3.7), "Look at the table", "Jason",
+		"Laid for dinner. Nobody cleared the plates. Whatever happened here, it happened in the middle of a meal.",
+		Vector3(1.2, 0.3, 1.0))
+	_prop("hutch", Vector3(-5.55, 0, -4.0), Vector3(0.6, 2.1, 1.9), PI / 2.0)
+	_wardrobe(Vector3(1.5, 0, -3.2), PI / 2.0)  # hiding spot
+	_rug(Vector2(-2.6, -3.7), Vector2(5.0, 2.6))
+	_patrol("library", Vector3(-2.0, 0, -5.2))
+
+
 ## 5. Library: case file 1 and a child's drawing on the desk; Lily humming
-## behind the wall; the east wing key in a locked glass case; the drawer key
-## on a shelf, only visible in the bright beam. Taking the east wing key
-## sets off a chase back to the foyer.
+## behind the wall; the east wing key in a locked glass case (the drawer key
+## for it is in the study). Taking the east wing key sets off a chase back
+## to the foyer.
 func _build_library() -> void:
 	_room("library", Vector2(-16, -14), Vector2(-6, -2))
 	_wall(Vector2(-16, -14), Vector2(-6, -14))
@@ -403,7 +540,7 @@ func _build_library() -> void:
 	display_case.key_id = "drawer_key"
 	display_case.room_a = "library"
 	display_case.room_b = "display_case"
-	display_case.locked_line = "Locked. A tiny brass keyhole. The key could be anywhere in these stacks, and it's far too dark to find it."
+	display_case.locked_line = "Locked. A tiny brass keyhole. A key that small would be kept somewhere private. A desk drawer. A study."
 	display_case.position = Vector3(-7.0, _y, -3.0)
 	add_child(display_case)
 	_rooms_add("display_case", Vector2(-7.35, -3.25), Vector2(-6.65, -2.75))
@@ -416,11 +553,6 @@ func _build_library() -> void:
 		if _case_tried_at < 0.0:
 			_case_tried_at = GameState.elapsed)
 	east_key.taken.connect(_on_east_wing_key_taken)
-
-	# The drawer key: hidden on a shelf end until the bright beam finds it.
-	var drawer := _pickup(Pickup.Kind.KEY, Vector3(-14.66, 1.25, -9.5), "drawer_key")
-	drawer.hidden_until_bright = true
-	drawer.line = "A small brass key. It has to be for that glass case."
 
 	_wardrobe(Vector3(-15.5, 0, -3.0), -PI / 2.0)  # hiding spot
 	_pickup(Pickup.Kind.BATTERY, Vector3(-11.8, 0.06, -8.25))   # battery #3

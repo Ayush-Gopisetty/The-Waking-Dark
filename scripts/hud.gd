@@ -27,6 +27,8 @@ var _shown_dark_hint := false
 var _saved_label: Label
 var _saved_time := 0.0
 var _shown_hide_hint := false
+var _hide_mask: ShaderMaterial
+var _hide_amount := 0.0
 
 
 func _ready() -> void:
@@ -50,6 +52,10 @@ func _process(delta: float) -> void:
 
 	var dark := clampf(fl.exposure / fl.hunt_threshold, 0.0, 1.0)
 	_postfx.set_shader_parameter("exposure", dark)
+
+	_hide_amount = move_toward(_hide_amount, 1.0 if player.hidden else 0.0, delta * 5.0)
+	_hide_mask.set_shader_parameter("amount", _hide_amount)
+	_hide_mask.set_shader_parameter("peek", clampf(angle_difference(player._hide_yaw, player.rotation.y) / 0.6, -1.0, 1.0) if player.hidden else 0.0)
 
 	_prompt.text = player.get_prompt()
 	_crosshair.visible = not player.hidden and not GameState.cutscene
@@ -230,6 +236,15 @@ func _build() -> void:
 	_postfx.shader = POSTFX_SHADER
 	fx.material = _postfx
 	add_child(fx)
+
+	# Hiding: the dark inside of the wardrobe doors, with gaps to look through.
+	var mask := ColorRect.new()
+	mask.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hide_mask = ShaderMaterial.new()
+	_hide_mask.shader = preload("res://shaders/hiding_mask.gdshader")
+	mask.material = _hide_mask
+	add_child(mask)
 
 	_crosshair = ColorRect.new()
 	_crosshair.color = Color(1, 1, 1, 0.35)

@@ -137,6 +137,14 @@ func _physics_process(delta: float) -> void:
 func _sense(delta: float, player: Player) -> void:
 	var fl := player.flashlight
 	_sees_player = _can_see(player)
+	# A light shining out of a wardrobe gives the hiding place away.
+	if player.hidden and fl.is_lighting() and player.hiding_spot != null \
+			and state != State.RETREAT and state != State.BLOCK and _known_spot != player.hiding_spot:
+		var front: Vector3 = player.hiding_spot.front_position() + Vector3(0, 1.2, 0)
+		if global_position.distance_to(front) < 9.0 and _clear_line(_chest(), front):
+			_known_spot = player.hiding_spot
+			if state != State.CHASE:
+				_enter_chase(player)
 	_lit_by_bright = false
 	if state == State.RETREAT:
 		return

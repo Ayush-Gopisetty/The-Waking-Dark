@@ -61,9 +61,9 @@ func _run() -> void:
 	var library := _spirit("library")
 	_check(player != null, "player registered")
 	_check(_spirits().size() == 3, "three spirits (plan: 2-3 individuals)")
-	_check(GameState.hiding_spots.size() == 4, "four hiding spots: hall 2, foyer 1, library 1 (%d)" % GameState.hiding_spots.size())
-	_check(_count(Pickup.Kind.BATTERY) == 4, "four battery pickups (%d)" % _count(Pickup.Kind.BATTERY))
-	_check(_keys().size() == 3, "three keys: furnace, drawer, east wing (%d)" % _keys().size())
+	_check(GameState.hiding_spots.size() == 6, "six hiding spots: hall 3, foyer 1, dining room 1, library 1 (%d)" % GameState.hiding_spots.size())
+	_check(_count(Pickup.Kind.BATTERY) == 7, "seven battery pickups (%d)" % _count(Pickup.Kind.BATTERY))
+	_check(_keys().size() == 5, "five keys: furnace, stairs, study, drawer, east wing (%d)" % _keys().size())
 	var problems: PackedStringArray = _level.validate_key_graph()
 	_check(problems.is_empty(), "key graph valid %s" % str(problems))
 
@@ -76,8 +76,11 @@ func _run() -> void:
 
 	# Navigation across both floors.
 	var nav_map: RID = hall.nav.get_navigation_map()
-	_check(_path_reaches(nav_map, Vector3(2, 0, 4.5), Vector3(8, UP, -4)), "spirits can path up the service stairs to the foyer")
-	_check(_path_reaches(nav_map, Vector3(8, UP, -4), Vector3(-11.8, UP, -8.25)), "spirits can path foyer -> corridor -> library")
+	_check(not _path_reaches(nav_map, Vector3(2, 0, 4.5), Vector3(8, UP, -7)), "locked stairs door keeps the hall spirit downstairs")
+	_check(_path_reaches(nav_map, Vector3(8, UP, -7), Vector3(-11.8, UP, -8.25)), "spirits can path foyer -> corridor -> library")
+	_check(_path_reaches(nav_map, Vector3(8, UP, -7), Vector3(19, UP, -3)), "spirits can path foyer -> gallery")
+	_check(_path_reaches(nav_map, Vector3(8, 0, 4.5), Vector3(13, 0, 8.5)), "spirits can path hall -> servants' quarters")
+	_check(not _path_reaches(nav_map, Vector3(-1, UP, -8), Vector3(-2, UP, -12)), "locked study door blocks navigation")
 	_check(not _path_reaches(nav_map, Vector3(14, 0, 4.5), Vector3(19, 0, 4.5)), "locked furnace door blocks navigation")
 	_check(not _path_reaches(nav_map, Vector3(14, UP, -7), Vector3(18, UP, -7)), "locked east wing door blocks navigation")
 	var starts: Array[Vector3] = []
@@ -88,6 +91,8 @@ func _run() -> void:
 	for i in _spirits().size():
 		if _spirits()[i].global_position.distance_to(starts[i]) > 0.3:
 			moved += 1
+		else:
+			print("    not moved: %s at %s state %s" % [_spirits()[i].zone, _spirits()[i].global_position, Spirit.State.keys()[_spirits()[i].state]])
 	_check(moved == 3, "all three spirits patrol (%d moved)" % moved)
 	_check(absf(foyer.global_position.y - UP) < 0.3 and absf(library.global_position.y - UP) < 0.3, "upstairs spirits stay on the upper floor")
 
@@ -95,6 +100,8 @@ func _run() -> void:
 	_check(GameState.is_lit(Vector3(-3, 0, 4.6)), "abandoned room is lit (moonlight)")
 	_check(GameState.is_lit(Vector3(20.5, 0, 4.5)), "furnace glow is lit")
 	_check(GameState.is_lit(Vector3(5.5, UP, -6.5)), "foyer candles are lit")
+	_check(GameState.is_lit(Vector3(7.0, UP, -4.5)) and GameState.is_lit(Vector3(13.0, UP, -1.5)), "the whole parlour is lit (no spirit comes in)")
+	_check(not GameState.is_lit(Vector3(19, UP, -3)), "the gallery is dark")
 	_check(GameState.is_lit(Vector3(-7.0, UP, -13.0)), "library desk is lit")
 	_check(not GameState.is_lit(Vector3(8, 0, 4.5)), "servants' hall is dark")
 
@@ -166,7 +173,17 @@ func _run() -> void:
 	_check(hall.state == Spirit.State.RETREAT, "bright beam drives it off (state %s)" % Spirit.State.keys()[hall.state])
 	hall.process_mode = Node.PROCESS_MODE_DISABLED
 
-	# --- 4. Service stairs and Daniel ------------------------------------------------
+	# --- 4. Servants' quarters, service stairs and Daniel ----------------------------
+	var stairs_door := _door_between("servants_hall", "service_stairs")
+	_place(player, Vector3(10.0, 0, 4.0), 0.0)
+	stairs_door.interact(player)
+	await _frames(5)
+	_check(stairs_door.locked and not stairs_door.is_open, "the service stairs are locked without the key")
+	_check(_level.room_at(_find_key("stairs_key").global_position) == "servants_quarters", "the stairs key is in the servants' quarters")
+	_find_key("stairs_key").interact(player)
+	stairs_door.interact(player)
+	await _frames(40)
+	_check(not stairs_door.locked and stairs_door.is_open, "the stairs key opens the service stairs")
 	_place(player, Vector3(10.0, 0.05, 2.6), 0.0)  # bottom of the stairs, facing north
 	for i in 140:
 		Input.action_press("move_forward")
@@ -174,8 +191,14 @@ func _run() -> void:
 		if player.global_position.y > UP - 0.05 and player.global_position.z < -1.2:
 			break
 	Input.action_release("move_forward")
-	_check(player.global_position.y > UP - 0.1, "walking up the service stairs reaches the foyer (y %.2f)" % player.global_position.y)
+	_check(player.global_position.y > UP - 0.1, "walking up the service stairs reaches the parlour (y %.2f)" % player.global_position.y)
 	_check(await _wait_for(func() -> bool: return GameState.cutscene, 3.0), "meeting Daniel starts at the top of the stairs")
+	_check(_level.room_at(_level.daniel.global_position) == "parlour" and _level.daniel.global_position.distance_to(player.global_position) < 4.5, "Jason meets Daniel in the parlour")
+	var near_spirit := 1e9
+	for sp in _spirits():
+		if _level.room_at(sp.global_position) == "parlour":
+			near_spirit = 0.0
+	_check(near_spirit > 0.0, "no spirit is in the room where they meet")
 	var director: CutsceneDirector = _level.director
 	_check(await _wait_for(func() -> bool: return director.active and director.camera != null and director.camera.current, 3.0), "the meeting cuts to a third-person camera")
 	_check(not player.body.first_person, "Jason's full body (head included) shows in the cutscene")
@@ -193,7 +216,7 @@ func _run() -> void:
 	_check(_gestures_smooth(), "every gesture moves smoothly (no arm flips or snaps)")
 	_check(daniel.global_position.distance_to(_level.DANIEL_WATCH) < 0.3, "Daniel goes to watch the door")
 	_check(GameState.repels(daniel.global_position + Vector3(1.5, 0, 0)), "spirits keep away from Daniel")
-	_check(not GameState.checkpoint.is_empty() and GameState.checkpoint_position().y > UP - 0.5, "checkpoint saved after the foyer")
+	_check(not GameState.checkpoint.is_empty() and GameState.checkpoint_position().y > UP - 0.5, "checkpoint saved after the meeting")
 	_check(_door_between("foyer", "outside").locked, "front doors are chained")
 
 	# --- 5. Library ---------------------------------------------------------------------
@@ -206,10 +229,20 @@ func _run() -> void:
 	_check(case.locked, "display case is locked without the drawer key")
 	var east_key := _find_key("east_wing_key")
 	_check(not east_key.available, "east wing key can't be taken through the glass")
+	# The gallery: the study key. The study: the drawer key.
+	var study_door := _door_between("corridor", "study")
+	_check(study_door.locked, "the study is locked")
+	_check(_level.room_at(_find_key("study_key").global_position) == "gallery", "the study key is in the gallery")
+	_find_key("study_key").interact(player)
+	_place(player, Vector3(0.5, UP, -9.0), 0.0)
+	study_door.interact(player)
+	await _frames(40)
+	_check(not study_door.locked and study_door.is_open, "the study key opens the study")
 	var drawer := _find_key("drawer_key")
+	_check(_level.room_at(drawer.global_position) == "study", "the drawer key is in the study")
 	_check(not drawer.available, "drawer key is invisible in normal light")
 	# Normal beam on it: still hidden.
-	_place(player, Vector3(-14.4, UP, -11.0), deg_to_rad(10.0), -0.1)
+	_place(player, Vector3(-3.4, UP, -11.4), deg_to_rad(10.0), -0.1)
 	_aim_at(player, drawer.global_position)
 	await _frames(20)
 	_check(not drawer.available, "normal beam doesn't reveal it")

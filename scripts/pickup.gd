@@ -62,7 +62,7 @@ func _ready() -> void:
 			var model := "key_brass"
 			if item_id == "east_wing_key":
 				model = "key_iron_tag"
-			elif item_id == "furnace_key":
+			elif item_id == "furnace_key" or item_id == "stairs_key":
 				model = "key_brass_tag"
 			_visual = Props.instance(model)
 			if hanging:

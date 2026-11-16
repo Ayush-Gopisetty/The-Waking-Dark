@@ -32,6 +32,8 @@ const LOG_PATH := "user://playtest_log.csv"
 const ITEM_NAMES := {
 	"id": "ID: Jason Hale",
 	"furnace_key": "Furnace room key",
+	"stairs_key": "Servants' stairs key",
+	"study_key": "Study key",
 	"case_file_carter": "Case file: E. Carter",
 	"drawer_key": "Small drawer key",
 	"east_wing_key": "East wing key",
