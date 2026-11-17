@@ -55,6 +55,7 @@ var _pole: Dictionary[String, Vector3] = {"L": Vector3.ZERO, "R": Vector3.ZERO}
 var _palm: Dictionary[String, Vector3] = {"L": Vector3.LEFT, "R": Vector3.RIGHT}
 var _finger: Dictionary[String, float] = {"L": 0.35, "R": 0.35}
 var _twist: Dictionary[String, float] = {"L": 0.0, "R": 0.0}
+var _wrist_bend: Dictionary[String, Quaternion] = {"L": Quaternion.IDENTITY, "R": Quaternion.IDENTITY}
 var _dt := 0.0
 var _chest_twist := 0.0
 var _last_yaw := INF
@@ -1044,8 +1045,13 @@ func _orient_hand(side: String, s: String) -> void:
 	var off := palm.angle_to(_palm[s])
 	# Fade out near 180 degrees, where the bend direction is undefined and would flip.
 	var bend := minf(off, 0.95) * (1.0 - smoothstep(1.7, 2.3, off))
+	# Smoothed: when the palm is far from where it should face, the bend's
+	# direction can swing round within a frame, which flicked the hand.
+	var target_q := Quaternion.IDENTITY
 	if bend_axis.length() > 0.001 and bend > 0.02:
-		_rotate_global(hand, Basis(bend_axis.normalized(), bend))
+		target_q = Quaternion(bend_axis.normalized(), bend)
+	_wrist_bend[s] = _wrist_bend[s].slerp(target_q, minf(1.0, 7.0 * maxf(_dt, 1.0 / 120.0))) if _initialised else target_q
+	_rotate_global(hand, Basis(_wrist_bend[s]))
 	# A relaxed wrist droops a little toward the palm...
 	var g := skeleton.get_bone_global_pose(hand)
 	var fingers := (g.basis.y).normalized()

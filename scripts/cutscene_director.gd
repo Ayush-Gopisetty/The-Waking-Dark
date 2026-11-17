@@ -5,7 +5,7 @@ extends Node3D
 ## included) is shown, and each subtitle line picks a shot and gestures:
 ##
 ##   {"speaker": "Daniel", "text": "...", "shot": "daniel_close",
-##    "daniel": "show_hand", "jason": "idle", "at": "west_door", "approach": true}
+##    "daniel": "show_hand", "jason": "idle", "at": "parlour_door", "approach": true}
 ##
 ## Shots: wide, daniel, jason, daniel_close, jason_close, jason_right, hand, moon, door.
 ## Without "shot", the speaker gets an over-the-shoulder shot (narration: wide).
@@ -200,7 +200,11 @@ func _frame(shot: String, d_head: Vector3, j_head: Vector3) -> Array:
 		"door":
 			var door: Vector3 = points.get(_at if not _at.is_empty() else "east_door", d_head)
 			var mid := (d_head + j_head) * 0.5
-			return [mid + (mid - door).normalized() * 1.6 + Vector3(0, 0.2, 0), door.lerp(mid, 0.35), 48.0]
+			# Behind the pair, looking past them to the door. In a small room the
+			# camera can't back off far, so open the lens up instead.
+			var back := mid + (mid - door).normalized() * 1.6 + Vector3(0, 0.2, 0)
+			var room := _unblocked(mid, back).distance_to(mid)
+			return [back, door.lerp(mid, 0.45), lerpf(66.0, 48.0, clampf((room - 0.6) / 1.0, 0.0, 1.0))]
 	# Wide two-shot from whichever side has more room.
 	var mid := (d_head + j_head) * 0.5
 	var dist := maxf(2.2, d_head.distance_to(j_head) * 1.15)

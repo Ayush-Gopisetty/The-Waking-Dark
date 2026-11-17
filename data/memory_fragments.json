@@ -101,11 +101,11 @@
       },
       {
         "speaker": "Daniel",
-        "text": "The east wing door's locked. If there's a key, it's in the library, through the west door. Go on. I'll watch the door.",
+        "text": "The east wing door's locked. If there's a key, it's in the library: out that door and west, across the foyer. Go on. I'll watch this door.",
         "duration": 6.0,
-        "shot": "wide",
+        "shot": "door",
         "daniel": "point",
-        "at": "west_door"
+        "at": "parlour_door"
       }
     ]
   },
@@ -179,11 +179,11 @@
       },
       {
         "speaker": "Daniel",
-        "text": "The east wing door's locked. If there's a key, it's in the library, through the west door. Go on. I'll watch the door.",
+        "text": "The east wing door's locked. If there's a key, it's in the library: out that door and west, across the foyer. Go on. I'll watch this door.",
         "duration": 6.0,
-        "shot": "wide",
+        "shot": "door",
         "daniel": "point",
-        "at": "west_door"
+        "at": "parlour_door"
       }
     ]
   },

@@ -114,7 +114,7 @@ func _ready() -> void:
 	GameState.restore_level(self)
 	_bake_navigation()
 	_spawn_spirit("hall", Vector3(12, 0, 4.5))
-	_spawn_spirit("foyer", Vector3(13, UPSTAIRS, -8.8))
+	_spawn_spirit("foyer", Vector3(14.6, UPSTAIRS, -11.2))
 	_spawn_spirit("library", Vector3(-11.8, UPSTAIRS, -5.75))
 	_start_audio()
 	_start_dust.call_deferred()
@@ -347,9 +347,9 @@ func _build_foyer() -> void:
 		_box(Vector3(9.0 + side * 1.85, 1.3, -10.8), Vector3(0.08, 0.9, 3.4), _wood_material, false)
 	_box(Vector3(5.0, WALL_HEIGHT * 0.5, -11.0), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
 	_box(Vector3(12.4, WALL_HEIGHT * 0.5, -10.6), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
-	_box(Vector3(7.6, 0.25, -7.2), Vector3(1.6, 0.5, 1.2), _metal_material)  # fallen chandelier
+	_box(Vector3(12.6, 0.25, -8.6), Vector3(1.6, 0.5, 1.2), _metal_material)  # fallen chandelier (clear of the routes past the stairs)
 	_box(Vector3(14.6, 0.5, -2.0), Vector3(1.4, 1.0, 0.6), _wood_material)    # bench
-	_rug(Vector2(12.2, -7.0), Vector2(3.0, 2.2))
+	_rug(Vector2(12.4, -7.6), Vector2(3.0, 2.2))
 	_prop("painting", Vector3(16 - 0.11, 1.55, -11.2), Vector3(0.03, 0.6, 0.8), -PI / 2.0, false)
 
 	# Candles: the safe pockets out in the foyer. One in the west half, one by
@@ -376,6 +376,7 @@ func _build_foyer() -> void:
 	add_child(director)
 	director.points = {
 		"west_door": Vector3(2.0, UPSTAIRS + 1.3, -8.0),
+		"parlour_door": Vector3(10.0, UPSTAIRS + 1.2, -5.0),
 		"east_door": Vector3(16.0, UPSTAIRS + 1.2, -7.0),
 		"moon_window": Vector3(6.5, UPSTAIRS + 2.3, -12.88),
 	}
@@ -1143,7 +1144,7 @@ func _bake_navigation() -> void:
 	mesh.cell_height = 0.1
 	mesh.agent_radius = 0.375
 	mesh.agent_height = 1.8
-	mesh.agent_max_climb = 0.2
+	mesh.agent_max_climb = 0.12  # under the collapsed staircase's 0.2 m steps (bodies can't climb them)
 	mesh.agent_max_slope = 30.0
 	mesh.region_min_size = 16.0  # drop tiny islands (tops of furniture)
 	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
