@@ -28,6 +28,7 @@ const MODELS := {
 }
 
 static var _cache: Dictionary = {}
+static var _shelf_wood: StandardMaterial3D
 
 
 static func instance(model: String) -> Node3D:
@@ -81,6 +82,20 @@ static func place(parent: Node, model: String, floor_point: Vector3, size: Vecto
 	m.scale = fit if stretch else Vector3.ONE * s
 	m.position = -Vector3(b.get_center().x, b.position.y, b.get_center().z) * m.scale
 	return holder
+
+
+## Fills a placed bookcase with books and darkens its pale wood.
+static func stock_bookcase(holder: Node3D, seed_value: int, skip: Array = []) -> void:
+	var m := holder.get_child(0) as Node3D
+	for mi: MeshInstance3D in m.find_children("*", "MeshInstance3D", true, false):
+		if _shelf_wood == null:
+			var src := mi.get_active_material(0) as StandardMaterial3D
+			if src != null:
+				_shelf_wood = src.duplicate() as StandardMaterial3D
+				_shelf_wood.albedo_color = Color(0.45, 0.4, 0.36)
+		if _shelf_wood != null:
+			mi.material_override = _shelf_wood
+	m.add_child(Furnishing.bookcase_books(seed_value, skip))
 
 
 ## Height of the model's top surface over its centre region (vertex scan), in

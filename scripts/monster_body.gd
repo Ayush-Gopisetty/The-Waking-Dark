@@ -70,6 +70,20 @@ var _twitch := Vector2.ZERO
 var _twitch_target := Vector2.ZERO
 var _twitch_timer := 0.0
 
+## Set by the spirit AI each frame (all eased in here).
+## Turning its face from a light it will not enter: 0..1, and which side it turns to.
+var avert := 0.0
+var avert_side := 1.0
+## Cowering near Daniel: 0..1.
+var shy := 0.0
+## Fleeing the beam: stumbling, hunched, arms up.
+var stumbling := false
+var _avert_b := 0.0
+var _shy_b := 0.0
+var _stumble_b := 0.0
+var _push := 0.0
+var _burst: CPUParticles3D
+
 ## Bones the animation drives, parents before children.
 const DRIVEN: Array[String] = [
 	"Hips", "Spine", "Chest", "UpperChest", "Neck", "Head", "Jaw",
@@ -86,6 +100,14 @@ func _ready() -> void:
 	animate(0.0, 0.0, false, 0.0)
 
 
+## The beam shoves it back: it rocks away from the light and tears apart into smoke.
+func push_back() -> void:
+	_push = 1.0
+	if _burst != null:
+		_burst.restart()
+		_burst.emitting = true
+
+
 ## Called every physics frame by the spirit AI.
 ## ground_speed in m/s; burn is 0..1 (how badly the light is hurting it).
 func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> void:
@@ -99,6 +121,15 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	var chase := _chase_blend * (1.0 - _burn_blend)
 	var burning := _burn_blend
 	var calm := 1.0 - chase
+	_avert_b = lerpf(_avert_b, avert, minf(1.0, 5.0 * delta))
+	_shy_b = lerpf(_shy_b, shy, minf(1.0, 3.0 * delta))
+	_stumble_b = lerpf(_stumble_b, 1.0 if stumbling else 0.0, minf(1.0, 6.0 * delta))
+	_push = maxf(0.0, _push - delta * 2.6)
+	var push := pow(_push, 1.5)
+	# Fleeing: now and then a foot catches and the leg buckles. It never pitches or lunges
+	# forward; the body just sags and the head drops.
+	var trip := pow(maxf(0.0, sin(_time * 4.7)), 6.0) * _stumble_b
+	var crouch := maxf(_shy_b, _avert_b * 0.4)
 
 	# Legs: a lurching, uneven gait. The right leg drags a little.
 	for i in 2:
@@ -106,8 +137,8 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		var s: String = "Left" if i == 0 else "Right"
 		var swing := sin(_phase + (0.0 if i == 0 else PI))
 		var reach := 0.55 if i == 0 else 0.42
-		var thigh := 0.14 + swing * reach * stride + burning * 0.3
-		var knee := -(0.3 + maxf(0.0, -swing) * 0.85 * stride + burning * 0.5)
+		var thigh := 0.14 + swing * reach * stride + burning * 0.3 + crouch * 0.5
+		var knee := -(0.3 + maxf(0.0, -swing) * 0.85 * stride + burning * 0.5 + crouch * 0.8 + trip * 0.35)
 		_rot[s + "UpperLeg"] = Vector3(thigh, 0, side * 0.03)
 		_rot[s + "LowerLeg"] = Vector3(knee, 0, 0)
 		_rot[s + "Foot"] = Vector3(-(thigh + knee), 0, 0)
@@ -116,10 +147,10 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	# The pivot torso bends at one joint; the bones share it out up the spine.
 	var breath := sin(_time * 1.1) * 0.025
 	var lurch := absf(sin(_phase)) * stride
-	_hip_drop = lurch * 0.04
+	_hip_drop = lurch * 0.04 + crouch * 0.13 + trip * 0.05
 	_hip_sway = sin(_phase) * 0.07 * stride
 	_rot["Hips"] = Vector3(0, 0, _hip_sway)
-	var spine := Vector3(-0.38 - chase * 0.32 + burning * 0.25 + breath, sin(_phase) * 0.1 * stride, -sin(_phase) * 0.08 * stride + 0.05)
+	var spine := Vector3(-0.38 - chase * 0.32 + burning * 0.25 + breath + _avert_b * 0.2 + _shy_b * 0.4 + push * 0.45, sin(_phase) * 0.1 * stride + _avert_b * avert_side * 0.55, -sin(_phase) * 0.08 * stride + 0.05)
 	_rot["Spine"] = spine * 0.35
 	_rot["Chest"] = spine * 0.35
 	_rot["UpperChest"] = spine * 0.3
@@ -133,8 +164,21 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		var hang := 0.3 + swing + sin(_time * 0.9 + i) * 0.03
 		var reach := 1.6 + sin(_time * 7.0 + i * 2.0) * 0.12
 		var shield := 1.5 + sin(_time * 31.0 + i) * 0.06
-		_rot[s + "UpperArm"] = Vector3(lerpf(lerpf(hang, reach, chase), shield, burning), 0, side * lerpf(lerpf(0.12, 0.16, chase), -0.75, burning))
-		_rot[s + "LowerArm"] = Vector3(lerpf(lerpf(0.12, 0.2, chase), 2.1, burning), 0, 0)
+		var upper := Vector3(lerpf(lerpf(hang, reach, chase), shield, burning), 0, side * lerpf(lerpf(0.12, 0.16, chase), -0.75, burning))
+		var lower := Vector3(lerpf(lerpf(0.12, 0.2, chase), 2.1, burning), 0, 0)
+		# Turning from a light: the arm on the far side comes up across its face.
+		if (avert_side > 0.0) == (s == "Right"):
+			upper = upper.lerp(Vector3(1.5, 0, side * -0.75), _avert_b * 0.85)
+			lower = lower.lerp(Vector3(2.1, 0, 0), _avert_b * 0.85)
+		else:
+			upper = upper.lerp(Vector3(-0.35, 0, side * 0.5), _avert_b * 0.6)
+		# Cowering near Daniel: both arms fold in over its chest.
+		upper = upper.lerp(Vector3(0.7, 0, side * -0.4), _shy_b)
+		lower = lower.lerp(Vector3(1.9, 0, 0), _shy_b)
+		# Shoved back by the beam: the arms fling out to the sides.
+		upper += Vector3(0.0, 0, side * 0.6 * push)
+		_rot[s + "UpperArm"] = upper
+		_rot[s + "LowerArm"] = lower
 		_rot[s + "Hand"] = Vector3(lerpf(0.05, 0.35, chase) + sin(_time * 11.0 + i) * 0.06 * chase, 0, 0)
 
 	# Head: lolls to one side with sudden snaps. In a chase it locks forward.
@@ -143,8 +187,8 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		_twitch_timer = randf_range(0.7, 3.0)
 		_twitch_target = Vector2(randf_range(-0.2, 0.2), randf_range(-0.35, 0.35))
 	_twitch = _twitch.lerp(_twitch_target, minf(1.0, 18.0 * delta))
-	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm, 0)
-	_rot["Head"] = Vector3(0.45 + chase * 0.35 - burning * 0.35 + _twitch.x * calm, 0, lerpf(0.45, 0.12, chase) + _twitch.y * 0.3 * calm)
+	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2 + _shy_b * 0.25, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm * (1.0 - _avert_b) - _avert_b * avert_side * 0.7, 0)
+	_rot["Head"] = Vector3(0.45 + chase * 0.35 - burning * 0.35 + _twitch.x * calm + _shy_b * 0.4 - push * 0.4, 0, lerpf(0.45, 0.12, chase) + _twitch.y * 0.3 * calm)
 	# The jaw hangs slack; it gapes in a chase and screams when burned.
 	_rot["Jaw"] = Vector3(-(0.04 + chase * 0.16 + burning * 0.26 + absf(sin(_time * 1.9)) * 0.02), 0, 0)
 
@@ -154,11 +198,14 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	_skin.emission_energy_multiplier = burning * (2.2 + sin(_time * 38.0) * 0.9)
 	position.x = sin(_time * 55.0) * 0.025 * burning
 	position.z = cos(_time * 47.0) * 0.025 * burning
+	# Its body is only shadow: shoved, it smears; turned from the light, it thins.
+	scale = Vector3(1.0 - 0.06 * push, 1.0 + 0.08 * push, 1.0)
 	if _smoke != null:
 		_smoke.speed_scale = 1.0 + burning * 2.5
 
 	# Its darkness: thicker in a chase, breathing slowly, burned away by the light.
 	var gloom := (1.0 + chase * 0.6 + sin(_time * 0.7) * 0.15) * (1.0 - burning * 0.85)
+	gloom *= (1.0 - _shy_b * 0.6) * (1.0 - _avert_b * 0.3) * (1.0 - 0.3 * absf(sin(_time * 41.0)) * maxf(push, _stumble_b * 0.5))
 	if _aura_mat != null:
 		_aura_mat.density = 3.0 * gloom
 		_aura.rotation.y = _time * 0.15  # the noise inside swirls
@@ -289,6 +336,21 @@ func _build_smoke() -> void:
 	_smoke.position = Vector3(0, 1.2, 0.1)
 	_smoke.direction = Vector3(0, 1, 0.3)
 	add_child(_smoke)
+
+	# A burst of black smoke when the beam shoves it (its body tearing apart).
+	_burst = _smoke_emitter(40, 1.3, 0.85, 0.5, 1.5)
+	_burst.preprocess = 0.0
+	_burst.one_shot = true
+	_burst.explosiveness = 1.0
+	_burst.emitting = false
+	_burst.emission_box_extents = Vector3(0.25, 0.5, 0.15)
+	_burst.position = Vector3(0, 1.25, 0)
+	_burst.direction = Vector3(0, 0.2, 1)
+	_burst.spread = 180.0
+	_burst.initial_velocity_min = 0.8
+	_burst.initial_velocity_max = 2.2
+	_burst.gravity = Vector3.ZERO
+	add_child(_burst)
 
 	# Trailing from the fingers (world-space particles, so they stream behind it).
 	for side in (["Left", "Right"] if _skel != null else []):

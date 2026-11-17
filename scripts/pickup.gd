@@ -73,7 +73,10 @@ func _ready() -> void:
 				_visual.position.y = 0.005
 			_glint.albedo_color = Color(0.16, 0.13, 0.07)
 		Kind.NOTE:
-			_visual = _box(Vector3(0.22, 0.012, 0.3), Color(0.62, 0.55, 0.4), Color(0.9, 0.8, 0.55), 0.3)
+			_visual = Furnishing.case_folder(_paper())
+			_visual.position.y = -0.015
+			_visual.rotation.y = 0.25
+			_glint.albedo_color = Color(0.14, 0.12, 0.08)
 		Kind.ID:
 			# Jason's half-burned ID, lying in the grate.
 			_visual = Props.instance("id_jason")
@@ -81,7 +84,7 @@ func _ready() -> void:
 			_visual.position.y = 0.004
 			_glint.albedo_color = Color(0.22, 0.12, 0.05)  # catching the furnace glow
 	add_child(_visual)
-	if kind in [Kind.FLASHLIGHT, Kind.BATTERY, Kind.KEY, Kind.ID]:
+	if kind in [Kind.FLASHLIGHT, Kind.BATTERY, Kind.KEY, Kind.ID, Kind.NOTE]:
 		for mi: MeshInstance3D in _visual.find_children("*", "MeshInstance3D", true, false):
 			mi.material_overlay = _glint
 	if hidden_until_bright:
@@ -115,7 +118,14 @@ func _physics_process(_delta: float) -> void:
 	GameState.say("Jason", "Something glints where the light hits. A tiny key, tucked into the shelf.", 4.0)
 
 
-## Papers (the ID, the case file) stay simple glowing cards.
+static func _paper() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.78, 0.74, 0.62)
+	m.roughness = 0.95
+	return m
+
+
+## Simple glowing boxes (no longer used for the case file).
 func _box(size: Vector3, color: Color, glow: Color, energy: float) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()

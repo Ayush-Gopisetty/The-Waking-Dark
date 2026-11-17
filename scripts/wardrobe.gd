@@ -8,6 +8,8 @@ extends StaticBody3D
 @export var height := 2.2
 
 var _model: Node3D
+## Faint light that seeps in through the door gaps, so the room is never pitch black.
+var _leak: OmniLight3D
 
 
 func _ready() -> void:
@@ -24,6 +26,14 @@ func _ready() -> void:
 	# A carved gothic wardrobe (model faces +Z; our doors face -Z, so turn it round).
 	_model = Props.place(self, "wardrobe", Vector3.ZERO, Vector3(width, height, depth), PI, false, true)
 
+	_leak = OmniLight3D.new()
+	_leak.light_color = Color(0.55, 0.62, 0.78)
+	_leak.light_energy = 0.0
+	_leak.omni_range = 6.0
+	_leak.shadow_enabled = false
+	_leak.position = Vector3(0.0, 1.5, -depth * 0.5 - 0.5)
+	add_child(_leak)
+
 	GameState.hiding_spots.append(self)
 
 
@@ -35,7 +45,9 @@ func get_prompt() -> String:
 ## dark inside of the doors with gaps to look (and shine the flashlight) through.
 func _process(_delta: float) -> void:
 	var player := GameState.player
-	_model.visible = not (player != null and player.hidden and player.hiding_spot == self)
+	var inside := player != null and player.hidden and player.hiding_spot == self
+	_model.visible = not inside
+	_leak.light_energy = move_toward(_leak.light_energy, 0.35 if inside else 0.0, _delta * 2.0)
 
 
 func interact(player: Player) -> void:

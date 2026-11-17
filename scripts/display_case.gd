@@ -31,13 +31,29 @@ func _ready() -> void:
 	var wood := StandardMaterial3D.new()
 	wood.albedo_color = Color(0.22, 0.16, 0.11)
 	wood.roughness = 0.6
-	var pedestal_mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = PEDESTAL
-	pedestal_mesh.mesh = box
-	pedestal_mesh.position.y = PEDESTAL.y * 0.5
-	pedestal_mesh.material_override = wood
-	add_child(pedestal_mesh)
+	# Moulded plinth, panelled column and cap, with brass trim and a velvet cushion.
+	var dark := wood.duplicate() as StandardMaterial3D
+	dark.albedo_color = wood.albedo_color.darkened(0.3)
+	var brass := Furnishing.brass()
+	Furnishing._box(self, Vector3(0, 0.04, 0), Vector3(PEDESTAL.x + 0.1, 0.08, PEDESTAL.z + 0.1), dark)
+	Furnishing._box(self, Vector3(0, 0.5, 0), Vector3(PEDESTAL.x - 0.04, 0.84, PEDESTAL.z - 0.04), wood)
+	for sx: float in [-1.0, 1.0]:
+		Furnishing._box(self, Vector3(sx * 0.17, 0.5, PEDESTAL.z * 0.5 - 0.015), Vector3(0.24, 0.6, 0.012), dark)
+		Furnishing._box(self, Vector3(sx * 0.17, 0.5, -PEDESTAL.z * 0.5 + 0.015), Vector3(0.24, 0.6, 0.012), dark)
+	Furnishing._box(self, Vector3(0, PEDESTAL.y - 0.035, 0), Vector3(PEDESTAL.x + 0.08, 0.07, PEDESTAL.z + 0.08), dark)
+	Furnishing._box(self, Vector3(0, PEDESTAL.y + 0.012, 0), Vector3(DOME.x - 0.04, 0.025, DOME.z - 0.04), Furnishing.cloth())
+	Furnishing._ball(self, Vector3(0, PEDESTAL.y - 0.12, PEDESTAL.z * 0.5 + 0.0), 0.014, brass)  # the keyhole plate
+	var rim_y := PEDESTAL.y + 0.01
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			Furnishing._box(self, Vector3(sx * (DOME.x * 0.5), rim_y + DOME.y * 0.5, sz * (DOME.z * 0.5)), Vector3(0.016, DOME.y, 0.016), brass)
+	for sy: float in [0.0, 1.0]:
+		var y := rim_y + sy * DOME.y
+		Furnishing._box(self, Vector3(0, y, DOME.z * 0.5), Vector3(DOME.x, 0.016, 0.016), brass)
+		Furnishing._box(self, Vector3(0, y, -DOME.z * 0.5), Vector3(DOME.x, 0.016, 0.016), brass)
+		Furnishing._box(self, Vector3(DOME.x * 0.5, y, 0), Vector3(0.016, 0.016, DOME.z), brass)
+		Furnishing._box(self, Vector3(-DOME.x * 0.5, y, 0), Vector3(0.016, 0.016, DOME.z), brass)
+
 	var pedestal_shape := CollisionShape3D.new()
 	var pedestal_box := BoxShape3D.new()
 	pedestal_box.size = PEDESTAL

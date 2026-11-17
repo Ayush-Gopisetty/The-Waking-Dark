@@ -71,6 +71,7 @@ var _wall_material: StandardMaterial3D
 var _floor_material: StandardMaterial3D
 var _ceiling_material: StandardMaterial3D
 var _wood_material: StandardMaterial3D
+var _flame_material: StandardMaterial3D
 var _metal_material: StandardMaterial3D
 var _trim_material: StandardMaterial3D
 var _surfaces: Dictionary = {}  # name -> StandardMaterial3D (scanned textures)
@@ -232,9 +233,11 @@ func _build_storage() -> void:
 	_wall(Vector2(1, 0), Vector2(1, 3))
 	_wall(Vector2(6, 0), Vector2(6, 3))
 	_door(Vector2(3.0 - DOOR_WIDTH * 0.5, 3), 0.0, -90.0, "servants_hall", "storage")
-	_prop("bookshelf", Vector3(1.45, 0, 1.2), Vector3(0.6, 2.0, 2.0), PI / 2.0)  # shelves
-	_box(Vector3(3.5, 1.42, 0.13), Vector3(0.3, 0.04, 0.05), _metal_material, false)  # hook rail
-	var key := _pickup(Pickup.Kind.KEY, Vector3(3.5, 1.3, 0.2), "furnace_key", true)
+	Props.stock_bookcase(_prop("bookshelf", Vector3(1.45, 0, 1.2), Vector3(0.6, 2.0, 2.0), PI / 2.0), 11)  # shelves
+	var rail := Furnishing.hook_rail(0.6)
+	rail.position = Vector3(3.5, 1.2 + _y, 0.115)
+	add_child(rail)
+	var key := _pickup(Pickup.Kind.KEY, Vector3(3.5, 1.15, 0.2), "furnace_key", true)
 	key.line = "A key on a hook. The tag says FURNACE."
 	_wardrobe(Vector3(5.5, 0, 1.5), PI / 2.0)  # hiding spot 1 of the hall
 	_patrol("hall", Vector3(3.2, 0, 1.4))
@@ -249,12 +252,12 @@ func _build_kitchen() -> void:
 	_wall(Vector2(4, 6), Vector2(4, 12))
 	_wall(Vector2(10, 6), Vector2(10, 12))
 	_door(Vector2(7.0 - DOOR_WIDTH * 0.5, 6), 0.0, -90.0, "servants_hall", "kitchen")
-	_box(Vector3(7.0, 0.45, 11.6), Vector3(5.6, 0.9, 0.6), _wood_material)  # counter
-	_box(Vector3(6.6, 0.4, 9.0), Vector3(2.0, 0.8, 1.1), _wood_material)    # table
+	_furnish(Furnishing.counter(Vector3(5.6, 0.9, 0.6), _wood_material), Vector3(7.0, 0, 11.6), PI, Vector3(5.6, 0.9, 0.6))
+	_furnish(Furnishing.table(Vector3(2.0, 0.8, 1.1), _wood_material), Vector3(6.6, 0, 9.0), 0.0, Vector3(2.0, 0.8, 1.1))
 	_prop("chair", Vector3(5.25, 0, 9.0), Vector3(0.55, 1.2, 0.55), PI / 2.0)
 	_prop("chair", Vector3(7.95, 0, 9.1), Vector3(0.55, 1.2, 0.55), -PI / 2.0 + 0.3)
 	_prop("hutch", Vector3(4.42, 0, 7.6), Vector3(0.6, 2.1, 1.9), PI / 2.0)
-	_box(Vector3(4.45, 0.45, 10.2), Vector3(0.7, 0.9, 0.8), _metal_material)  # stove
+	_furnish(Furnishing.stove(Vector3(0.8, 0.9, 0.7)), Vector3(4.45, 0, 10.2), PI / 2.0, Vector3(0.8, 0.9, 0.7))  # stove
 	_wardrobe(Vector3(9.5, 0, 8.0), PI / 2.0)  # pantry: hiding spot 2 of the hall
 	_patrol("hall", Vector3(5.5, 0, 7.4))
 	_patrol("hall", Vector3(8.4, 0, 10.6))
@@ -273,11 +276,10 @@ func _build_furnace_room() -> void:
 	var door := _door(Vector2(16, 4.5 - DOOR_WIDTH * 0.5), -PI / 2.0, 90.0, "servants_hall", "furnace_room", "furnace_key")
 	door.locked_line = "Locked. Warmth coming through the gap under the door."
 
-	_box(Vector3(21.4, 0.7, 4.5), Vector3(1.0, 1.4, 1.6), _metal_material)
-	_box(Vector3(20.89, 0.55, 4.5), Vector3(0.03, 0.5, 0.8), _glow_material(Color(1.0, 0.4, 0.1), 2.5), false)
+	_furnish(Furnishing.furnace(Vector3(1.0, 1.4, 1.6), _glow_material(Color(1.0, 0.4, 0.1), 2.5)), Vector3(21.4, 0, 4.5), 0.0, Vector3(1.0, 1.4, 1.6))
 	_flicker(Vector3(20.4, 0.8, 4.5), Color(1.0, 0.5, 0.2), 2.4, 5.0, true)
 	_lit(Vector3(18.8, 0, 2.9), Vector3(22, WALL_HEIGHT, 6.1))
-	_pickup(Pickup.Kind.ID, Vector3(20.75, 0.45, 4.5))
+	_pickup(Pickup.Kind.ID, Vector3(20.74, 0.285, 4.5))  # on the ash pan
 	_surface("damaged", "planks")
 
 
@@ -292,7 +294,7 @@ func _build_servants_quarters() -> void:
 		var bed := _prop("bed", Vector3(x, 0, 9.75), Vector3(1.5, 1.55, 2.06), 0.0, false)
 		var mattress := Props.top_height(bed, 0.3)
 		_solid(Vector3(x, mattress * 0.5, 9.75), Vector3(1.5, mattress, 2.06))
-	_box(Vector3(13.0, 0.35, 10.6), Vector3(0.7, 0.7, 0.5), _wood_material)  # table between the beds
+	_furnish(Furnishing.table(Vector3(0.7, 0.7, 0.5), _wood_material), Vector3(13.0, 0, 10.6), 0.0, Vector3(0.7, 0.7, 0.5))  # table between the beds
 	var key := _pickup(Pickup.Kind.KEY, Vector3(13.0, 0.71, 10.6), "stairs_key")
 	key.line = "A key on a loop of string. The tag says STAIRS."
 	_prop("chair", Vector3(12.0, 0, 10.5), Vector3(0.5, 1.15, 0.5), PI - 0.4)
@@ -342,22 +344,25 @@ func _build_foyer() -> void:
 	for i in 8:
 		var h := 0.2 * (i + 1)
 		_box(Vector3(9.0, h * 0.5, -9.2 - i * 0.45), Vector3(3.6, h, 0.45), _wood_material)
-	_box(Vector3(8.2, 1.85, -11.4), Vector3(1.4, 0.5, 0.9), _wood_material)  # rubble
+	_solid(Vector3(8.2, 1.85, -11.4), Vector3(1.4, 0.5, 0.9))  # rubble
+	var pile := Furnishing.rubble(Vector3(1.4, 0.5, 0.9), _wood_material, _surfaces["concrete"], 5)
+	pile.position = Vector3(8.2, 1.85 + _y, -11.4)
+	add_child(pile)
 	for side: float in [-1.0, 1.0]:
 		_box(Vector3(9.0 + side * 1.85, 1.3, -10.8), Vector3(0.08, 0.9, 3.4), _wood_material, false)
 	_box(Vector3(5.0, WALL_HEIGHT * 0.5, -11.0), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
 	_box(Vector3(12.4, WALL_HEIGHT * 0.5, -10.6), Vector3(0.6, WALL_HEIGHT, 0.6), _wall_material)  # pillar
-	_box(Vector3(12.6, 0.25, -8.6), Vector3(1.6, 0.5, 1.2), _metal_material)  # fallen chandelier (clear of the routes past the stairs)
-	_box(Vector3(14.6, 0.5, -2.0), Vector3(1.4, 1.0, 0.6), _wood_material)    # bench
+	_furnish(Furnishing.chandelier(Vector3(1.6, 0.5, 1.2)), Vector3(12.6, 0, -8.6), 0.0, Vector3(1.6, 0.5, 1.2))  # fallen chandelier (clear of the routes past the stairs)
+	_furnish(Furnishing.bench(Vector3(1.4, 1.0, 0.6), _wood_material), Vector3(14.6, 0, -2.0), 0.0, Vector3(1.4, 1.0, 0.6))    # bench
 	_rug(Vector2(12.4, -7.6), Vector2(3.0, 2.2))
 	_prop("painting", Vector3(16 - 0.11, 1.55, -11.2), Vector3(0.03, 0.6, 0.8), -PI / 2.0, false)
 
 	# Candles: the safe pockets out in the foyer. One in the west half, one by
 	# the east wing door. (The parlour is lit throughout.)
 	_candles(Vector3(5.5, 1.05, -5.2), Vector3(3.9, 0, -8.1), Vector3(7.1, WALL_HEIGHT, -4.9))
-	_box(Vector3(5.5, 0.5, -5.2), Vector3(0.5, 1.0, 0.5), _wood_material)
+	_furnish(Furnishing.pedestal(Vector3(0.5, 1.0, 0.5), _wood_material), Vector3(5.5, 0, -5.2), 0.0, Vector3(0.5, 1.0, 0.5))
 	_candles(Vector3(15.6, 1.05, -8.6), Vector3(13.8, 0, -9.0), Vector3(16, WALL_HEIGHT, -5.4))
-	_box(Vector3(15.6, 0.5, -8.6), Vector3(0.5, 1.0, 0.5), _wood_material)
+	_furnish(Furnishing.pedestal(Vector3(0.5, 1.0, 0.5), _wood_material), Vector3(15.6, 0, -8.6), 0.0, Vector3(0.5, 1.0, 0.5))
 
 	# High window: pale moon now, orange when Act 1 ends.
 	_window(Vector3(6.5, 2.3, -12.88), Vector3(1.0, 1.2, 0.03))
@@ -398,8 +403,8 @@ func _build_parlour() -> void:
 	_door(Vector2(10.0 - DOOR_WIDTH * 0.5, -5), 0.0, 90.0, "parlour", "foyer")
 
 	_candles(Vector3(8.7, 0.9, -1.4), Vector3(6.5, 0, -5), Vector3(13.5, WALL_HEIGHT, -1))
-	_box(Vector3(8.7, 0.45, -1.4), Vector3(0.6, 0.9, 0.4), _wood_material)
-	_box(Vector3(12.9, 0.4, -4.45), Vector3(0.8, 0.8, 0.5), _wood_material)  # side table
+	_furnish(Furnishing.table(Vector3(0.6, 0.9, 0.4), _wood_material), Vector3(8.7, 0, -1.4), 0.0, Vector3(0.6, 0.9, 0.4))
+	_furnish(Furnishing.table(Vector3(0.8, 0.8, 0.5), _wood_material), Vector3(12.9, 0, -4.45), 0.0, Vector3(0.8, 0.8, 0.5))  # side table
 	_prop("candleholders", Vector3(12.9, 0.8, -4.45), Vector3(0.7, 0.55, 0.3), 0.0, false)
 	_flicker(Vector3(12.9, 1.5, -4.3), Color(1.0, 0.68, 0.38), 1.2, 4.5, true)
 	_flicker(Vector3(7.4, 1.6, -3.0), Color(1.0, 0.68, 0.38), 0.8, 4.0, false)
@@ -431,7 +436,7 @@ func _build_gallery() -> void:
 	_examinable(Vector3(19.0, 1.5, -4.8), "Look at the portrait", "Jason",
 		"A family, painted in front of this house. Someone has scratched out the faces. Every one but the child's.",
 		Vector3(1.0, 0.8, 0.3))
-	_box(Vector3(21.3, 0.5, -3.0), Vector3(0.5, 1.0, 0.5), _wood_material)  # plinth
+	_furnish(Furnishing.pedestal(Vector3(0.5, 1.0, 0.5), _wood_material), Vector3(21.3, 0, -3.0), 0.0, Vector3(0.5, 1.0, 0.5))  # plinth
 	var key := _pickup(Pickup.Kind.KEY, Vector3(21.3, 1.0, -3.0), "study_key")
 	key.line = "A small key on a brass fob. The fob is stamped STUDY."
 	_prop("chair", Vector3(16.7, 0, -1.6), Vector3(0.6, 1.3, 0.6), PI - 0.5)
@@ -447,7 +452,7 @@ func _build_corridor() -> void:
 	_room("corridor", Vector2(-6, -10), Vector2(2, -6))
 	_wall(Vector2(-6, -10), Vector2(2, -10), [6.5])  # north: study (x = 0.5)
 	_wall(Vector2(-6, -6), Vector2(2, -6), [4.0])    # south: dining room (x = -2)
-	_box(Vector3(-2.0, 0.4, -9.65), Vector3(1.2, 0.8, 0.45), _wood_material)
+	_furnish(Furnishing.table(Vector3(1.2, 0.8, 0.45), _wood_material), Vector3(-2.0, 0, -9.65), 0.0, Vector3(1.2, 0.8, 0.45))  # console table
 	_prop("oil_lamp", Vector3(-2.35, 0.8, -9.65), Vector3(0.2, 0.42, 0.2), 0.0, false)
 	_rug(Vector2(-2.0, -8.0), Vector2(6.6, 1.1))
 	_prop("painting", Vector3(-4.2, 1.45, -9.89), Vector3(0.7, 0.55, 0.03), 0.0, false)
@@ -464,14 +469,14 @@ func _build_study() -> void:
 	_wall(Vector2(2, -14), Vector2(2, -13))  # (the foyer's west wall covers z -13..-10)
 	var door := _door(Vector2(0.5 - DOOR_WIDTH * 0.5, -10), 0.0, 90.0, "corridor", "study", "study_key")
 	door.locked_line = "Locked. A brass plate on the door: STUDY."
-	_box(Vector3(-2.6, 0.4, -13.2), Vector3(1.8, 0.8, 0.8), _wood_material)  # desk
+	_furnish(Furnishing.desk(Vector3(1.8, 0.8, 0.8), _wood_material), Vector3(-2.6, 0, -13.2), 0.0, Vector3(1.8, 0.8, 0.8))  # desk
 	_prop("chair", Vector3(-2.6, 0, -12.3), Vector3(0.6, 1.3, 0.6), 0.0)
 	_prop("oil_lamp", Vector3(-1.95, 0.8, -13.3), Vector3(0.2, 0.42, 0.2), 0.0, false)
 	_box(Vector3(-2.9, 0.805, -13.1), Vector3(0.3, 0.01, 0.22), _paper_material(), false)
 	_examinable(Vector3(-2.9, 0.85, -13.1), "Read the ledger", "Jason",
 		"Household accounts. Wages for a full staff, then half of them, then nobody at all. The last line isn't a number. It says: 'She won't stop humming.'",
 		Vector3(0.4, 0.15, 0.3))
-	_prop("bookshelf", Vector3(-5.6, 0, -12.0), Vector3(0.6, 2.2, 2.2), PI / 2.0)
+	Props.stock_bookcase(_prop("bookshelf", Vector3(-5.6, 0, -12.0), Vector3(0.6, 2.2, 2.2), PI / 2.0), 23, [4])  # row 4 holds the hidden key
 	_prop("hutch", Vector3(1.55, 0, -11.6), Vector3(0.6, 2.1, 1.9), -PI / 2.0)
 	_rug(Vector2(-2.4, -11.6), Vector2(3.0, 1.8))
 	_prop("painting", Vector3(-0.6, 1.55, -13.89), Vector3(0.8, 0.6, 0.03), 0.0, false)
@@ -490,7 +495,7 @@ func _build_dining_room() -> void:
 	_room("dining_room", Vector2(-6, -6), Vector2(2, -2))
 	_wall(Vector2(-6, -2), Vector2(2, -2))
 	_door(Vector2(-2.0 - DOOR_WIDTH * 0.5, -6), 0.0, -90.0, "corridor", "dining_room")
-	_box(Vector3(-2.6, 0.4, -3.7), Vector3(4.0, 0.8, 1.1), _wood_material)  # the table
+	_furnish(Furnishing.table(Vector3(4.0, 0.8, 1.1), _wood_material), Vector3(-2.6, 0, -3.7), 0.0, Vector3(4.0, 0.8, 1.1))  # the table
 	for x: float in [-4.0, -2.6, -1.2]:
 		_prop("chair", Vector3(x, 0, -4.6), Vector3(0.5, 1.2, 0.5), 0.0)
 		_prop("chair", Vector3(x + 0.15, 0, -2.8), Vector3(0.5, 1.2, 0.5), PI + 0.2)
@@ -522,12 +527,16 @@ func _build_library() -> void:
 		for i in 4:
 			var x := -11.8 - 2.1 + i * 1.4
 			for side: float in [1.0, -1.0]:
-				Props.place(self, "bookshelf", Vector3(x, _y, z + side * 0.125), Vector3(1.4, 2.4, 0.25), 0.0 if side > 0.0 else PI, false, true)
+				var unit := Props.place(self, "bookshelf", Vector3(x, _y, z + side * 0.125), Vector3(1.4, 2.4, 0.25), 0.0 if side > 0.0 else PI, false, true)
+				Props.stock_bookcase(unit, int(x * 10.0) + int(z * 7.0) + (3 if side > 0.0 else 0))
 	_rug(Vector2(-8.8, -8.2), Vector2(1.8, 6.4))
 
 	# Reading desk with a candle: case file 1 and a child's drawing.
-	_box(Vector3(-7.0, 0.4, -13.3), Vector3(1.2, 0.8, 0.7), _wood_material)
-	_box(Vector3(-6.6, 0.88, -13.45), Vector3(0.05, 0.16, 0.05), _glow_material(Color(1.0, 0.75, 0.4), 3.0), false)
+	_furnish(Furnishing.desk(Vector3(1.2, 0.8, 0.7), _wood_material), Vector3(-7.0, 0, -13.3), 0.0, Vector3(1.2, 0.8, 0.7))
+	var desk_candle := Furnishing.candle_cluster(_flame_material if _flame_material != null else _glow_material(Color(1.0, 0.75, 0.4), 4.0))
+	desk_candle.position = Vector3(-6.6, 0.8 + _y, -13.45)
+	desk_candle.scale = Vector3.ONE * 0.6
+	add_child(desk_candle)
 	_flicker(Vector3(-6.6, 1.1, -13.3), Color(1.0, 0.7, 0.4), 1.3, 3.6, true)
 	_lit(Vector3(-8.4, 0, -14), Vector3(-6, WALL_HEIGHT, -12.0))
 	var case_file := _pickup(Pickup.Kind.NOTE, Vector3(-7.25, 0.82, -13.25), "case_file_carter")
@@ -1004,9 +1013,11 @@ func _story_trigger(min_corner: Vector2, max_corner: Vector2, speaker: String, l
 
 
 func _candles(pos: Vector3, lit_min: Vector3, lit_max: Vector3) -> void:
-	for i in 3:
-		var offset := Vector3((i - 1) * 0.09, 0.0, (i % 2) * 0.06)
-		_box(pos + offset + Vector3(0, 0.07 + i * 0.02, 0), Vector3(0.04, 0.14 + i * 0.04, 0.04), _glow_material(Color(1.0, 0.75, 0.4), 2.5), false)
+	if _flame_material == null:
+		_flame_material = _glow_material(Color(1.0, 0.75, 0.4), 4.0)
+	var cluster := Furnishing.candle_cluster(_flame_material)
+	cluster.position = pos + Vector3(0, _y - 0.03, 0)
+	add_child(cluster)
 	_flicker(pos + Vector3(0, 0.35, 0), Color(1.0, 0.68, 0.38), 1.4, 3.8, false)
 	_lit(lit_min, lit_max)
 
@@ -1014,7 +1025,29 @@ func _candles(pos: Vector3, lit_min: Vector3, lit_max: Vector3) -> void:
 func _window(center: Vector3, size: Vector3) -> void:
 	var glass := _glow_material(Color(0.55, 0.68, 1.0), 1.4)
 	_moon_glass.append(glass)
-	_box(center, size, glass, false)
+	# Thin along X: a side wall (west faces +X, east faces -X); thin along Z faces +Z.
+	var x_thin := size.x < size.z
+	var yaw := 0.0
+	if x_thin:
+		yaw = PI / 2.0 if center.x < 10.0 else -PI / 2.0
+	var win := Furnishing.window(Vector2(size.z if x_thin else size.x, size.y), glass)
+	# Sit exactly on the inner face of the wall (so nothing is coplanar with it).
+	var face := center
+	if x_thin:
+		face.x = roundf(center.x) + (0.5 * WALL_THICKNESS if center.x < 10.0 else -0.5 * WALL_THICKNESS)
+	else:
+		face.z = roundf(center.z) + 0.5 * WALL_THICKNESS
+	win.position = face + Vector3(0, _y, 0)
+	win.rotation.y = yaw
+	add_child(win)
+
+
+## Adds a Furnishing piece at a floor point (turned by yaw) with a box collider.
+func _furnish(piece: Node3D, floor_point: Vector3, yaw: float, size: Vector3) -> void:
+	piece.position = floor_point + Vector3(0, _y, 0)
+	piece.rotation.y = yaw
+	add_child(piece)
+	_solid(floor_point + Vector3(0, size.y * 0.5, 0), size if absf(sin(yaw)) < 0.5 else Vector3(size.z, size.y, size.x))
 
 
 ## Act 1 moonlight: pale, cold blue.
@@ -1146,7 +1179,7 @@ func _bake_navigation() -> void:
 	mesh.cell_height = 0.1
 	mesh.agent_radius = 0.375
 	mesh.agent_height = 1.8
-	mesh.agent_max_climb = 0.12  # under the collapsed staircase's 0.2 m steps (bodies can't climb them)
+	mesh.agent_max_climb = 0.1  # under the collapsed staircase's 0.2 m steps (bodies can't climb them)
 	mesh.agent_max_slope = 30.0
 	mesh.region_min_size = 16.0  # drop tiny islands (tops of furniture)
 	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS

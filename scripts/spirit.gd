@@ -56,6 +56,10 @@ var _sense_cooldown := 0.0
 var _screech_cooldown := 0.0
 var _sees_player := false
 var _lit_by_bright := false
+var _was_bright := false
+var _knock := Vector3.ZERO
+var _shove_cooldown := 0.0
+var _blocked_by_light := false
 var _hunting := false
 var _known_spot: Node3D = null
 var _search_spot: Node3D = null
@@ -123,6 +127,10 @@ func _physics_process(delta: float) -> void:
 		speed *= lerpf(1.0, 0.3, clampf(weaken_progress / weaken_time, 0.0, 1.0))
 
 	_move(delta, speed)
+	# On patrol, don't stand at the edge of a light: pick another point soon.
+	if state == State.PATROL and _blocked_by_light and _blocked_time >= 1.2:
+		_blocked_time = 0.0
+		_next_patrol_point()
 	if _blocked_time >= light_patience and state != State.BLOCK:
 		# It will not step into the light. Give up and drift off.
 		if state == State.CHASE:
@@ -150,9 +158,14 @@ func _sense(delta: float, player: Player) -> void:
 		return
 
 	_lit_by_bright = fl.bright_covers(_chest()) and _clear_line(fl.global_position, _chest())
+	_shove_cooldown = maxf(0.0, _shove_cooldown - delta)
+	if _lit_by_bright and not _was_bright and _shove_cooldown <= 0.0:
+		_shove(player, 2.4)  # the beam hits: it is pushed back a step
+	_was_bright = _lit_by_bright
 	if _lit_by_bright:
 		weaken_progress += delta
 		if weaken_progress >= weaken_time:
+			_shove(player, 3.6)
 			_enter_retreat(player)
 			return
 	else:
@@ -276,6 +289,21 @@ func banish_from(pos: Vector3) -> void:
 	weaken_progress = 0.0
 	_lit_by_bright = false
 	_enter_patrol()
+
+
+## The light throws it back, away from the player, in a smear of smoke.
+func _shove(player: Player, strength: float) -> void:
+	var away := global_position - player.global_position
+	away.y = 0.0
+	if away.length() < 0.01:
+		away = -global_basis.z
+	_knock = away.normalized() * strength * 0.6
+	_shove_cooldown = 1.5
+	body.push_back()
+	if not voice.playing:
+		voice.pitch_scale = 1.5
+		voice.volume_db = -4.0
+		voice.play()
 
 
 func _enter_retreat(player: Player) -> void:
@@ -419,9 +447,18 @@ func _next_patrol_point() -> void:
 	if points.is_empty():
 		_has_target = false
 		return
-	var index := randi() % points.size()
-	if points.size() > 1 and index == _patrol_index:
-		index = (index + 1) % points.size()
+	# Points inside a lit area can't be reached (it won't step into light): skip them.
+	var open: Array[int] = []
+	for i in points.size():
+		if not GameState.is_lit(points[i]) and i != _patrol_index:
+			open.append(i)
+	var index: int
+	if open.is_empty():
+		index = randi() % points.size()
+		if points.size() > 1 and index == _patrol_index:
+			index = (index + 1) % points.size()
+	else:
+		index = open[randi() % open.size()]
 	_patrol_index = index
 	_go_to(points[index])
 
@@ -466,6 +503,7 @@ func _arrived() -> bool:
 func _move(delta: float, speed: float) -> void:
 	var motion := Vector3.ZERO
 	var blocked := false
+	var blocked_by_light := false
 	if speed > 0.0 and _has_target and not nav.is_navigation_finished():
 		var direction := nav.get_next_path_position() - global_position
 		direction.y = 0.0
@@ -477,13 +515,23 @@ func _move(delta: float, speed: float) -> void:
 			var into_daniel := GameState.repels(ahead) and not GameState.repels(global_position)
 			if into_light or into_daniel:
 				blocked = true
+				blocked_by_light = into_light
+				if into_daniel:
+					# It turns its back on Daniel and shrinks away from him.
+					var away := global_position - GameState.daniel_position
+					away.y = 0.0
+					if away.length() > 0.01:
+						direction = away.normalized()
+						motion = direction * 0.6
 			else:
 				motion = direction * speed
 			_face(direction, delta)
+	_blocked_by_light = blocked and blocked_by_light
 	_blocked_time = _blocked_time + delta if blocked else 0.0
 	# Gravity, so spirits can use the service stairs.
 	var fall := 0.0 if is_on_floor() else velocity.y - 9.8 * delta
-	velocity = Vector3(motion.x, fall, motion.z)
+	velocity = Vector3(motion.x + _knock.x, fall, motion.z + _knock.z)
+	_knock = _knock.lerp(Vector3.ZERO, 1.0 - exp(-6.0 * delta))
 	move_and_slide()
 
 	# It is solid, so a closed door stops it. It shoves unlocked ones open.
@@ -514,7 +562,17 @@ func _flat_distance(pos: Vector3) -> float:
 # --- Presentation --------------------------------------------------------------------
 
 func _update_presentation(delta: float) -> void:
-	var weak := 1.0 if state == State.RETREAT else clampf(weaken_progress / weaken_time, 0.0, 1.0)
+	var weak := clampf(weaken_progress / weaken_time, 0.0, 1.0)
+	if state == State.RETREAT:
+		# Burning at first, then a hunched stumbling run with its arms still up.
+		weak = lerpf(1.0, 0.12, clampf(_state_time / 1.5, 0.0, 1.0))
+	body.stumbling = state == State.RETREAT
+	body.avert_side = 1.0 if get_instance_id() % 2 == 0 else -1.0
+	body.avert = 1.0 if (_blocked_by_light and _blocked_time > 0.15 and state != State.RETREAT) else 0.0
+	var shy_amount := 0.0
+	if GameState.daniel_position != Vector3.INF and state != State.CHASE:
+		shy_amount = clampf(1.0 - _flat_distance(GameState.daniel_position) / (GameState.DANIEL_REPEL_RADIUS + 1.5), 0.0, 1.0)
+	body.shy = shy_amount
 	body.animate(delta, get_real_velocity().length(), state == State.CHASE, weak)
 	var chasing := state == State.CHASE
 	var blend := minf(1.0, 3.0 * delta)

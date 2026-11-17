@@ -77,12 +77,14 @@ func _ready() -> void:
 	daniel.visible = false
 	jason.visible = true
 	jason.position = Vector3.ZERO
+	jason.holding = true  # as in the game: flashlight in his right hand, so the left hand rubs the wound
 	jason.play("touch_head")
 	var last := 0.0
-	for t: float in [0.3, 0.7, 1.1, 1.7, 2.7, 3.6]:
+	for t: float in [0.3, 0.5, 0.7, 0.9, 1.1, 1.4, 1.7, 2.0, 2.3, 2.5, 2.7, 2.9, 3.1, 3.6]:
 		await _run(jason, t - last)
 		last = t
 		await _shot(out, "jason_touch_%.1f" % t, Vector3(0.9, 1.5, -1.6), Vector3(0, 1.4, 0), 40.0)
+		await _shot(out, "jason_touch_front_%.1f" % t, Vector3(0.15, 1.55, -1.1), Vector3(0, 1.45, 0), 32.0)
 	get_tree().quit()
 
 

@@ -14,6 +14,11 @@ const SHOTS := [
 	["face_front", Vector3(-0.03, 1.85, -0.85), Vector3(-0.05, 1.83, -0.38), "idle", true],
 	["chase", Vector3(0.4, 1.5, -2.4), Vector3(0.0, 1.1, 0.0), "chase", true],
 	["burn", Vector3(0.3, 1.5, -2.4), Vector3(0.0, 1.1, 0.0), "burn", true],
+	["push", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "push", true],
+	["avert", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "avert", true],
+	["avert_left", Vector3(-1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "avert_left", true],
+	["shy", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "shy", true],
+	["flee", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "flee", true],
 	["corridor_dark", Vector3(0.6, 1.6, -5.5), Vector3(0.0, 1.2, 0.0), "walk", true],
 ]
 
@@ -38,7 +43,13 @@ func _capture_all(out_dir: String) -> void:
 		_camera.look_at_from_position(cam_pos, target)
 		_flashlight.visible = shot[4]
 		# Let the pose settle (blends are time-based).
+		_body.avert = 0.0
+		_body.avert_side = 1.0
+		_body.shy = 0.0
+		_body.stumbling = false
 		for i in 90:
+			if pose == "push" and i == 84:
+				_body.push_back()
 			_pose(pose, 1.0 / 60.0)
 			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -54,6 +65,20 @@ func _pose(pose: String, delta: float) -> void:
 		"walk": _body.animate(delta, 1.5, false, 0.0)
 		"chase": _body.animate(delta, 3.2, true, 0.0)
 		"burn": _body.animate(delta, 0.0, false, 1.0)
+		"push": _body.animate(delta, 0.0, false, 0.5)
+		"avert":
+			_body.avert = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"avert_left":
+			_body.avert = 1.0
+			_body.avert_side = -1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"shy":
+			_body.shy = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"flee":
+			_body.stumbling = true
+			_body.animate(delta, 3.6, false, 0.12)
 
 
 func _build_stage() -> void:

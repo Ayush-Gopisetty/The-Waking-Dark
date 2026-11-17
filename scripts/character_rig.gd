@@ -894,7 +894,8 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 				[1.0, _arm(_head_surface(Vector3(-1.0, -0.2, 0.15), 0.05), Vector3(-0.95, 1.55, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
 				[1.5, _arm(_head_surface(Vector3(-0.4, -0.12 + rub * 6.0, -1.0), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.55)],
 				[2.2, _arm(_head_surface(Vector3(-0.45, -0.18 - rub * 6.0, -0.95), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.6)],
-				[2.6, _arm(_head_surface(Vector3(-0.95, -0.45, 0.5), 0.07), Vector3(-0.85, 1.5, 0.25), Vector3(0.5, 0.2, 0.4), 0.5)],
+				# (comes away from the head to the side first, then forward: never across the face)
+				[2.6, _arm(Vector3(-0.4, 1.46, 0.34), Vector3(-0.85, 1.4, 0.1), Vector3(0.4, 0.25, 0.2), 0.5)],
 				[3.1, _arm(Vector3(-0.1, 1.42, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.45)],
 				[3.65, _arm(Vector3(-0.11, 1.4, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.5)],
 				[4.45, _mirror_arm(out[h], holding)],
