@@ -161,7 +161,8 @@ func interact(player: Player) -> void:
 			GameState.say("Jason", line if not line.is_empty() else "A key. This has to open something.", 3.5)
 		Kind.ID:
 			GameState.add_item("id")
-			player.examine_id(fragment_id)  # he lifts it up and reads it, then the flashback
+			# A cutscene: he picks it out of the ash and reads it; then flashback 1.
+			GameState.flashback_requested.emit("id_found")
 		Kind.NOTE:
 			GameState.add_item(item_id)
 			GameState.flashback_requested.emit(fragment_id)

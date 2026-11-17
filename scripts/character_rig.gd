@@ -55,6 +55,7 @@ var _pole: Dictionary[String, Vector3] = {"L": Vector3.ZERO, "R": Vector3.ZERO}
 var _palm: Dictionary[String, Vector3] = {"L": Vector3.LEFT, "R": Vector3.RIGHT}
 var _finger: Dictionary[String, float] = {"L": 0.35, "R": 0.35}
 var _twist: Dictionary[String, float] = {"L": 0.0, "R": 0.0}
+var _finger_open: Dictionary[String, float] = {"L": 1.0, "R": 1.0}
 var _wrist_bend: Dictionary[String, Quaternion] = {"L": Quaternion.IDENTITY, "R": Quaternion.IDENTITY}
 var _dt := 0.0
 var _chest_twist := 0.0
@@ -114,14 +115,12 @@ var holding := false
 ## Prop model (see Props) for the ID card; look_at_id() lifts it up in the free
 ## hand (the one without the flashlight), studies it and puts it away.
 @export var id_model := ""
-## First person: world point where the card is held to read, and where the eyes
-## are (the camera). Vector3.INF = in front of the chest, facing the head.
-var id_read_point := Vector3.INF
-var id_eye := Vector3.INF
 var _id_card: Node3D
 ## Seconds into taking out / reading / putting away the ID (-1 when not).
 var _id_time := -1.0
-const ID_LENGTH := 6.4
+## Seconds the card is held up to read, and the whole animation's length.
+var _id_hold := 3.5
+var _id_len := 6.4
 ## Small idle behaviours (holding the hurt hand, clasping hands, glancing round).
 @export var fidgets := false
 # Speech: a jaw-open timeline built from the line's text.
@@ -142,8 +141,18 @@ var _glance_side := 1.0
 # Torso: elliptical slices [height, half-width, front z, back z] in rest pose.
 var _torso: Array[Vector4] = []
 var _torso_lo := 0.0
+## Metres the body travels per step. The planted foot slides back by exactly
+## this much (see _foot_target), so the feet grip the floor instead of skating.
+const STEP_LENGTH := 0.6
+## Foot spacing, centre to centre (half-width, skeleton units). The A-pose rest
+## has the feet at 0.20, far outside the hips (0.115): they stand under the hips.
+const STANCE_STAND := 0.108
+const STANCE_WALK := 0.085
 var _torso_step := 0.04
 var _thigh_radius := 0.09
+## The head (with hair) as an ellipsoid in the Head bone's rest space: centre and radii.
+var _head_c := Vector3.ZERO
+var _head_r := Vector3(0.09, 0.12, 0.1)
 var _tip_dir: Dictionary[String, Vector3] = {"L": Vector3.DOWN, "R": Vector3.DOWN}
 var _pole_push: Dictionary[String, Vector3] = {"L": Vector3.ZERO, "R": Vector3.ZERO}
 
@@ -177,7 +186,8 @@ func _ready() -> void:
 ## and the thighs from the model's own vertices, so the arms can be kept outside.
 func _measure_body() -> void:
 	var lo := _rest("Hips").y - 0.14
-	var hi := _rest("LeftUpperArm").y - 0.07
+	var armpit := _rest("LeftUpperArm").y - 0.07
+	var hi := _rest("Neck").y + 0.03  # up to the base of the neck, so a hand on the back of the neck is covered too
 	var n := int((hi - lo) / _torso_step) + 1
 	var rx: Array[float] = []
 	var zf: Array[float] = []
@@ -189,17 +199,32 @@ func _measure_body() -> void:
 	var thigh_a := _rest("LeftUpperLeg")
 	var thigh_b := _rest("LeftLowerLeg")
 	var thigh_d: Array[float] = []
+	var head_rest := skeleton.get_bone_global_rest(_b["Head"])
+	var head_inv := head_rest.affine_inverse()
+	var head_lo := Vector3(INF, INF, INF)
+	var head_hi := Vector3(-INF, -INF, -INF)
 	var to_skel := skeleton.global_transform.affine_inverse()
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		var lname := String(mesh.name).to_lower()
+		var xf := to_skel * mesh.global_transform
+		if lname.contains("body") or lname.contains("hair"):
+			# The head (skin and hair) above the base of the skull, for the arm to avoid.
+			for s in mesh.mesh.get_surface_count():
+				for v: Vector3 in mesh.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
+					var w := xf * v
+					if w.y >= head_rest.origin.y - 0.02 and absf(w.x) < 0.16:
+						var q := head_inv * w
+						head_lo = head_lo.min(q)
+						head_hi = head_hi.max(q)
 		if lname.contains("hair") or lname.contains("eye") or lname.contains("teeth") or lname.contains("tongue") or lname.contains("high-poly"):
 			continue
-		var xf := to_skel * mesh.global_transform
 		for s in mesh.mesh.get_surface_count():
 			var verts: PackedVector3Array = mesh.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]
 			for v in verts:
 				var p := xf * v
-				if p.y >= lo and p.y <= hi and absf(p.x) < 0.26:
+				# Above the armpits only the shoulders and neck count, not the upper arms.
+				var reach_x := 0.26 if p.y <= armpit else lerpf(0.22, 0.085, clampf((p.y - armpit) / maxf(hi - armpit, 0.01), 0.0, 1.0))
+				if p.y >= lo and p.y <= hi and absf(p.x) < reach_x:
 					var i := int((p.y - lo) / _torso_step)
 					rx[i] = maxf(rx[i], absf(p.x))
 					zf[i] = maxf(zf[i], p.z)
@@ -217,11 +242,21 @@ func _measure_body() -> void:
 			_torso.append(_torso[i - 1] if i > 0 else Vector4(lo, 0.15, 0.1, -0.1))
 		else:
 			# The upper arms creep into the top slices; a chest is never this wide.
-			_torso.append(Vector4(lo + (i + 0.5) * _torso_step, minf(rx[i], 0.215), zf[i], zb[i]))
+			_torso.append(Vector4(lo + (i + 0.5) * _torso_step, minf(rx[i], 0.215 if lo + i * _torso_step < armpit else 0.16), zf[i], zb[i]))
+	if head_lo.x < INF:
+		_head_c = (head_lo + head_hi) * 0.5
+		_head_r = (head_hi - head_lo) * 0.5 * 0.96  # a head is rounder than its bounding box
 	if thigh_d.size() > 20:
 		# Most of the trouser leg, not the jacket flaring over it.
 		thigh_d.sort()
 		_thigh_radius = clampf(thigh_d[int(thigh_d.size() * 0.85)], 0.05, 0.11)
+
+
+## A point on the head's surface (skeleton space) in the direction `dir` from its
+## centre (head-local: +X his left, +Y up, +Z forward), `margin` outside it.
+func _head_surface(dir: Vector3, margin: float) -> Vector3:
+	var d := dir.normalized()
+	return skeleton.get_bone_global_pose(_b["Head"]) * (_head_c + d * (_head_r + Vector3.ONE * margin))
 
 
 ## Pushes a skeleton-space point out of the torso and thighs (plus `margin`).
@@ -248,6 +283,17 @@ func _push_out(p: Vector3, margin: float) -> Vector3:
 			q.x = dx / r * rxm
 			q.z = cz + dz / r * rz
 			p = to_rest.affine_inverse() * q
+	# The head: the hand rests on it, never inside it.
+	var head_pose := skeleton.get_bone_global_pose(_b["Head"])
+	var hq := head_pose.affine_inverse() * p  # head-local, where the ellipsoid was measured
+	var hd := (hq - _head_c) / (_head_r + Vector3.ONE * margin)
+	var hr := hd.length()
+	if hr < 1.0:
+		if hr < 0.001:
+			hd = Vector3.BACK
+			hr = 1.0
+		hq = _head_c + hd / hr * (_head_r + Vector3.ONE * margin)
+		p = head_pose * hq
 	for side in ["Left", "Right"]:
 		var a := skeleton.get_bone_global_pose(_b[side + "UpperLeg"]).origin
 		var b := skeleton.get_bone_global_pose(_b[side + "LowerLeg"]).origin
@@ -382,7 +428,7 @@ func _process(delta: float) -> void:
 	if _last_pos != Vector3.INF and delta > 0.0:
 		var moved := Vector2(pos.x - _last_pos.x, pos.z - _last_pos.z).length()
 		_speed = lerpf(_speed, moved / delta, minf(1.0, 10.0 * delta))
-		_phase += moved / (0.75 * model_scale) * PI
+		_phase += moved / (STEP_LENGTH * model_scale) * PI
 	_last_pos = pos
 	_walk = move_toward(_walk, 1.0 if _speed > 0.25 else 0.0, delta * 4.0)
 	# Turning on the spot: little shuffle steps instead of the feet skating round.
@@ -397,7 +443,7 @@ func _process(delta: float) -> void:
 	_update_fidget(delta)
 	if _id_time >= 0.0:
 		_id_time += delta
-		if _id_time >= ID_LENGTH:
+		if _id_time >= _id_len:
 			_id_time = -1.0
 	_pose(delta)
 	_update_mouth(delta)
@@ -568,9 +614,13 @@ func _pose(delta: float) -> void:
 	var rest_hips := skeleton.get_bone_rest(hips).origin
 	# Idle: a slow weight shift. Walking: the weight rides over each stance leg.
 	var shift := sin(t * 0.35) * 0.018 * (1.0 - _walk) + sin(_phase - 0.5) * 0.02 * _walk
-	var bob := absf(cos(_phase)) * 0.025 * _walk
-	var drop := crouch * 0.42
-	skeleton.set_bone_pose_position(hips, rest_hips + Vector3(shift, bob - drop - 0.012 * _walk, 0))
+	# Feet first: where each foot wants to be this frame.
+	var legs := maxf(_walk, _shuffle * 0.45)
+	var feet := {"Left": _foot_target("Left", legs), "Right": _foot_target("Right", legs)}
+	# The hips sink just enough that the stretched-out stance leg can still reach its
+	# foot (so the foot stays planted), highest mid-stance, lowest at heel strike.
+	var drop := maxf(crouch * 0.42, _hip_drop_to_reach(feet) * legs)
+	skeleton.set_bone_pose_position(hips, rest_hips + Vector3(shift, -drop, 0))
 	_rotate_global(hips, Basis(Vector3.UP, sin(_phase) * 0.12 * _walk) * Basis(Vector3.BACK, -shift * 1.6))
 
 	# Torso: breathing, counter-rotation against the hips while walking, crouch and bow lean.
@@ -590,28 +640,18 @@ func _pose(delta: float) -> void:
 
 	# Legs: feet planted (or stepping), knees bend forward.
 	for side in ["Left", "Right"]:
-		var s := 1.0 if side == "Left" else -1.0
-		var legs := maxf(_walk, _shuffle * 0.45)
-		var p := _phase + (0.0 if side == "Left" else PI)
-		# sin(p): foot forward/back. cos(p) > 0: the foot is swinging forward.
-		var step := sin(p) * legs
-		var lift := pow(maxf(0.0, cos(p)), 1.5) * legs
-		# Heel peels up as the foot pushes off behind the body...
-		var heel := pow(maxf(0.0, -sin(p)), 3.0) * legs
-		# ...and the toes lift just before the heel strikes in front.
-		var toe_up := pow(maxf(0.0, sin(p)), 3.0) * smoothstep(-0.2, 0.4, cos(p)) * legs
-		var foot_rest := _rest(side + "Foot")
-		var foot := Vector3(foot_rest.x + s * 0.02 * crouch, foot_rest.y + lift * 0.1 + heel * 0.035, foot_rest.z + step * 0.2)
-		var knee_pole := _rest(side + "LowerLeg") + Vector3(s * 0.05, 0, 1.0)
-		_two_bone(side + "UpperLeg", side + "LowerLeg", side + "Foot", foot, knee_pole)
+		var sg := 1.0 if side == "Left" else -1.0
+		var ft: Dictionary = feet[side]
+		var knee_pole := _rest(side + "LowerLeg") + Vector3(sg * 0.05, 0, 1.0)
+		_two_bone(side + "UpperLeg", side + "LowerLeg", side + "Foot", ft.pos, knee_pole)
 		# Foot roll about the ankle (toes are +Z, so toes up is a negative X turn).
-		var pitch := toe_up * 0.25 - heel * 0.45
+		var pitch: float = ft.toe_up * 0.25 - ft.heel * 0.45
 		_set_global_basis(_b[side + "Foot"], Basis(Vector3.RIGHT, -pitch) * skeleton.get_bone_global_rest(_b[side + "Foot"]).basis)
 		if _b.has(side + "Toes"):
 			# The toes stay on the floor while the heel is up.
 			var toes := _b[side + "Toes"]
 			skeleton.set_bone_pose_rotation(toes, skeleton.get_bone_rest(toes).basis.get_rotation_quaternion())
-			_rotate_global(toes, Basis(Vector3.RIGHT, -heel * 0.4))
+			_rotate_global(toes, Basis(Vector3.RIGHT, -float(ft.heel) * 0.4))
 
 	# Arms: blend the hands, elbows, palm direction and finger curl toward the gesture.
 	var arm_k := 1.0 if not _initialised else minf(1.0, 4.0 * delta)
@@ -715,13 +755,55 @@ func _pose(delta: float) -> void:
 		want = want.lerp(Vector2(0.15 if bandaged_left else -0.15, -0.5), _fidget_env())
 	if _id_time >= 0.0:
 		# Eyes down on the card while it's up; a small tilt as he turns it over.
-		var reading := smoothstep(0.3, 1.0, _id_time) * (1.0 - smoothstep(4.3, 5.0, _id_time))
+		var reading := smoothstep(0.3, 1.0, _id_time) * (1.0 - smoothstep(0.8 + _id_hold, 1.5 + _id_hold, _id_time))
 		want = want.lerp(Vector2((0.1 if ID_HAND == "L" else -0.1) + sin(_id_time * 1.3) * 0.03, -0.52), reading)
 	_look = _look.lerp(want, minf(1.0, 4.0 * delta) if _initialised else 1.0)
 	var look_basis := Basis(Vector3.UP, _look.x) * Basis(Vector3.RIGHT, -_look.y)
 	_rotate_global(_b["Neck"], Basis(Vector3.UP, _look.x * 0.4) * Basis(Vector3.RIGHT, -_look.y * 0.4))
 	_set_global_basis(_b["Head"], look_basis * skeleton.get_bone_global_rest(_b["Head"]).basis)
 	_initialised = true
+
+
+## Where one foot goes this frame (skeleton space), with how far the heel is
+## peeled up and the toes raised. A step is two halves: the planted foot slides
+## back at exactly the body's speed (z falls linearly over a step's length), then
+## swings forward (eased) with a lift.
+func _foot_target(side: String, legs: float) -> Dictionary:
+	var sg := 1.0 if side == "Left" else -1.0
+	var foot_rest := _rest(side + "Foot")
+	var reach := STEP_LENGTH * 0.5
+	var u := fposmod(_phase + (0.0 if side == "Left" else PI) - PI * 0.5, TAU) / PI  # 0..2
+	var z := 0.0
+	var lift := 0.0
+	var heel := 0.0
+	var toe_up := 0.0
+	if u < 1.0:  # planted, moving back under the body
+		z = reach * (1.0 - 2.0 * u)
+		heel = pow(u, 5.0)  # the heel peels off as it passes behind
+	else:  # swinging forward
+		var v := u - 1.0
+		z = reach * (-1.0 + 2.0 * smoothstep(0.0, 1.0, v))
+		lift = sin(v * PI)
+		heel = pow(maxf(0.0, 1.0 - v * 3.0), 2.0)
+		toe_up = pow(v, 3.0) * (1.0 - smoothstep(0.9, 1.0, v))  # toes up, flat again at contact
+	var half_width := lerpf(STANCE_STAND, STANCE_WALK, legs)
+	var pos := Vector3(sg * half_width + sg * 0.02 * crouch, foot_rest.y + (lift * 0.1 + heel * 0.035) * legs, foot_rest.z + z * legs)
+	return {"pos": pos, "heel": heel * legs, "toe_up": toe_up * legs}
+
+
+## How far the hips must sink for both legs to reach their feet (never past a
+## nearly straight leg), in skeleton space.
+func _hip_drop_to_reach(feet: Dictionary) -> float:
+	var worst := 0.0
+	for side in ["Left", "Right"]:
+		var key := String(side[0])
+		var hip := _rest(side + "UpperLeg")
+		var length := (float(_len[key + "_thigh"]) + float(_len[key + "_shin"])) * 0.995
+		var f: Vector3 = feet[side].pos
+		var flat := Vector2(f.x - hip.x, f.z - hip.z).length_squared()
+		var vertical := sqrt(maxf(length * length - flat, 0.0001))
+		worst = maxf(worst, hip.y - f.y - vertical)
+	return worst
 
 
 ## Per side: hand target, elbow pole, palm direction and finger curl for the
@@ -808,10 +890,11 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 			out[h] = _mirror_arm(_track(_gesture_time, [
 				[0.0, _mirror_arm(out[h], holding)],
 				[0.55, _arm(Vector3(-0.27, 1.22, 0.24), Vector3(-0.8, 0.9, -0.1), Vector3(0.6, 0.3, 0.6), 0.4)],
-				[1.0, _arm(Vector3(-0.2, 1.66, 0.04), Vector3(-0.9, 1.5, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
-				[1.5, _arm(Vector3(-0.07, 1.63 + rub, -0.1), Vector3(-0.85, 1.75, 0.3), Vector3(0.2, -0.1, 1.0), 0.55)],
-				[2.2, _arm(Vector3(-0.08, 1.62 - rub, -0.09), Vector3(-0.85, 1.75, 0.3), Vector3(0.2, -0.1, 1.0), 0.6)],
-				[2.6, _arm(Vector3(-0.17, 1.6, 0.12), Vector3(-0.85, 1.45, 0.25), Vector3(0.5, 0.2, 0.4), 0.5)],
+				# (points on the head itself, so the hand rests on it wherever the head is)
+				[1.0, _arm(_head_surface(Vector3(-1.0, -0.2, 0.15), 0.05), Vector3(-0.95, 1.55, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
+				[1.5, _arm(_head_surface(Vector3(-0.4, -0.12 + rub * 6.0, -1.0), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.55)],
+				[2.2, _arm(_head_surface(Vector3(-0.45, -0.18 - rub * 6.0, -0.95), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.6)],
+				[2.6, _arm(_head_surface(Vector3(-0.95, -0.45, 0.5), 0.07), Vector3(-0.85, 1.5, 0.25), Vector3(0.5, 0.2, 0.4), 0.5)],
 				[3.1, _arm(Vector3(-0.1, 1.42, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.45)],
 				[3.65, _arm(Vector3(-0.11, 1.4, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.5)],
 				[4.45, _mirror_arm(out[h], holding)],
@@ -854,10 +937,25 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 	return out
 
 
-## Starts the look-at-the-ID animation (about ID_LENGTH seconds).
-func look_at_id() -> void:
+## Starts the look-at-the-ID animation: lift it up, read it for `hold` seconds,
+## put it away.
+func look_at_id(hold := 3.5) -> void:
 	if not id_model.is_empty():
+		_id_hold = hold
+		_id_len = 0.9 + hold + 0.7 + 0.3 + 1.0
 		_id_time = 0.0
+
+
+## Puts the ID away at once (a cutscene ended).
+func stop_id() -> void:
+	_id_time = -1.0
+	if _id_card != null:
+		_id_card.visible = false
+
+
+## World position of the ID card while it is held up (INF otherwise).
+func id_card_position() -> Vector3:
+	return _id_card.global_position if _id_card != null and _id_card.visible else Vector3.INF
 
 
 ## The hand that handles the ID: the left (the right holds the flashlight).
@@ -872,26 +970,19 @@ func _id_arm(out: Dictionary, time: float) -> void:
 	var rest: Dictionary = out[o]
 	var pocket := _arm(Vector3(x * 0.1, 1.18, 0.17), Vector3(x * 0.8, 1.0, -0.2), Vector3(-x * 0.3, 0.0, -0.95), 0.7)
 	var turn := sin(time * 1.3) * 0.12
-	var at := Vector3(x * 0.13, 1.2, 0.3)
-	if id_read_point != Vector3.INF:
-		at = skeleton.global_transform.affine_inverse() * id_read_point
+	# Held up in front of the chest, the card turned toward his eyes.
+	var at := Vector3(x * 0.1, 1.27, 0.3)
 	var palm := Vector3(-x * (0.25 + turn), 0.45, -0.85)
-	if id_eye != Vector3.INF:
-		# First person: the palm (and the card in it) turned to the eyes.
-		# First person: held like a playing card. The palm faces inward (thumb
-		# side toward the eyes), the card pinched between thumb and fingers.
-		var to_eye := (skeleton.global_transform.affine_inverse() * id_eye - at).normalized()
-		palm = (Vector3(-x * 0.85, 0.1, 0.0) + to_eye * 0.45 + Vector3(-x * turn, 0, 0)).normalized()
-	var read := _arm(at, Vector3(x * 0.75, 0.85, -0.25), palm, 0.95 if id_eye != Vector3.INF else 0.62)
+	var read := _arm(at, Vector3(x * 0.75, 0.85, -0.25), palm, 0.62)
 	out[o] = _track(time, [
-		[0.0, rest], [0.9, read], [4.4, read], [5.1, pocket], [5.4, pocket], [ID_LENGTH, rest],
+		[0.0, rest], [0.9, read], [0.9 + _id_hold, read], [1.6 + _id_hold, pocket], [1.9 + _id_hold, pocket], [_id_len, rest],
 	])
 
 
 ## The ID card itself: appears in the fingers once the hand is out of the
 ## jacket, faces his eyes, and is gone again when the hand goes back in.
 func _update_id_card() -> void:
-	var showing := _id_time >= 0.0 and _id_time < 5.2 and not id_model.is_empty()
+	var showing := _id_time >= 0.0 and _id_time < 1.7 + _id_hold and not id_model.is_empty()
 	if not showing:
 		if _id_card != null:
 			_id_card.visible = false
@@ -917,7 +1008,7 @@ func _update_id_card() -> void:
 	var index := xf * skeleton.get_bone_global_pose(_b[side + "IndexIntermediate"]).origin
 	var wrist := xf * skeleton.get_bone_global_pose(_b[side + "Hand"]).origin
 	var pinch := thumb.lerp(index, 0.5)
-	var eyes := id_eye if id_eye != Vector3.INF else head_position()
+	var eyes := head_position()
 	var face := (eyes - pinch).normalized()                 # the printed side looks at him
 	var up := ((pinch - wrist).normalized() * 0.2 + Vector3.UP).normalized()
 	up = (up - face * up.dot(face)).normalized()
@@ -1072,18 +1163,49 @@ const FINGER_SPREAD := {"Index": 1.0, "Middle": 0.15, "Ring": -0.55, "Little": -
 
 
 func _curl_fingers(side: String, s: String, t: float) -> void:
-	var x := 1.0 if s == "L" else -1.0
-	var curl := _finger[s]
 	if s == "R" and holding:
-		_grip_fingers(curl)
+		_grip_fingers(_finger[s])
 		return
+	# Fingers close as far as the pose says, but never into the body: near the head
+	# or torso they open just enough to stay outside (smoothed, so no popping).
+	var hand := skeleton.get_bone_global_pose(_b[side + "Hand"]).origin
+	var near_body := hand.distance_to(skeleton.get_bone_global_pose(_b["Head"]) * _head_c) < 0.42 \
+			or (_push_out(hand, 0.11) - hand).length() > 0.001
+	var allowed := 1.0
+	if near_body:
+		for trial: float in [1.0, 0.7, 0.45, 0.2, 0.0]:
+			_apply_fingers(side, s, t, trial)
+			allowed = trial
+			if not _fingers_in_body(side):
+				break
+	var dt := maxf(_dt, 1.0 / 120.0)
+	_finger_open[s] = allowed if allowed < _finger_open[s] else move_toward(_finger_open[s], allowed, 2.5 * dt)
+	_apply_fingers(side, s, t, _finger_open[s])
+
+
+## True if a finger's outer joints or tip are inside the head, torso or thighs.
+func _fingers_in_body(side: String) -> bool:
+	for finger in ["Index", "Middle", "Ring", "Little"]:
+		if not _b.has(side + finger + "Distal"):
+			continue
+		var distal := skeleton.get_bone_global_pose(_b[side + finger + "Distal"])
+		var mid := skeleton.get_bone_global_pose(_b[side + finger + "Intermediate"]).origin
+		for q: Vector3 in [mid, distal.origin, distal.origin + distal.basis.y.normalized() * 0.022]:
+			if (_push_out(q, 0.004) - q).length() > 0.004:
+				return true
+	return false
+
+
+func _apply_fingers(side: String, s: String, t: float, scale: float) -> void:
+	var x := 1.0 if s == "L" else -1.0
+	var curl := _finger[s] * scale
 	# Open hands fan the fingers a little; curled ones draw them together.
 	var spread := clampf(0.22 - curl * 0.35, -0.08, 0.16)
 	var i := 0
 	for finger in ["Index", "Middle", "Ring", "Little"]:
 		# Fingers curl a little more toward the little finger, like a resting hand,
 		# and each drifts on its own so the hand never looks frozen.
-		var own := curl * float(FINGER_CASCADE[finger]) + sin(t * (0.5 + i * 0.13) + x * 1.7 + i * 2.1) * 0.035
+		var own := curl * float(FINGER_CASCADE[finger]) + sin(t * (0.5 + i * 0.13) + x * 1.7 + i * 2.1) * 0.035 * scale
 		for part in ["Proximal", "Intermediate", "Distal"]:
 			var name: String = side + finger + part
 			if not _b.has(name):

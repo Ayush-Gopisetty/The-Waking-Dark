@@ -159,8 +159,11 @@ func _run() -> void:
 	_place(player, Vector3(19.5, 0, 4.5), -PI / 2.0)
 	_find_pickup(Pickup.Kind.ID).interact(player)
 	await _frames(10)
-	_check(GameState.has_item("id") and GameState.cutscene, "ID plays flashback 1")
-	_check(await _wait_for(func() -> bool: return not GameState.cutscene, 25.0), "flashback ends")
+	_check(GameState.has_item("id") and GameState.cutscene, "finding the ID starts a cutscene")
+	var id_director: CutsceneDirector = _level.director
+	_check(await _wait_for(func() -> bool: return id_director.active and id_director.camera != null and id_director.camera.current, 4.0), "the ID cutscene cuts to a third-person camera")
+	_check(await _wait_for(func() -> bool: return player.body.id_card_position() != Vector3.INF, 8.0), "Jason holds the ID up to read it")
+	_check(await _wait_for(func() -> bool: return not GameState.cutscene, 70.0), "the ID cutscene and flashback 1 end")
 	await _frames(5)
 	_check(hall.state == Spirit.State.BLOCK, "the spirit blocks the furnace door (state %s)" % Spirit.State.keys()[hall.state])
 	await _wait_for(func() -> bool: return hall.global_position.distance_to(_level.FURNACE_BLOCK) < 0.8, 6.0)

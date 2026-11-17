@@ -46,7 +46,9 @@ func move_to(pos: Vector3, seconds: float = 0.0) -> void:
 		_last_pos = Vector3.INF
 		return
 	_tween = create_tween()
-	_tween.tween_property(self, "global_position", pos, seconds).set_trans(Tween.TRANS_SINE)
+	# Constant speed: the legs are driven by distance travelled, so an eased start and
+	# stop made the body slide before the feet had begun to step.
+	_tween.tween_property(self, "global_position", pos, seconds).set_trans(Tween.TRANS_LINEAR)
 
 
 func _exit_tree() -> void:

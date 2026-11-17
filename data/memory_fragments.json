@@ -1,12 +1,40 @@
 {
-  "half_burned_id": {
-    "title": "Flashback 1: the ambush",
+  "id_found": {
+    "title": "Cutscene: Jason finds his ID",
+    "style": "scene",
+    "solo": true,
     "lines": [
+      {
+        "speaker": "",
+        "text": "In the grate, under the ash: a card. Curled by the heat, blackened along one edge. Your hand knows what it is before you do.",
+        "duration": 5.0,
+        "shot": "jason",
+        "id": "raise",
+        "id_hold": 13.5
+      },
+      {
+        "speaker": "",
+        "text": "A police ID. A photograph. A name, burned away halfway through.",
+        "duration": 4.0,
+        "shot": "id"
+      },
       {
         "speaker": "Jason",
         "text": "Hale. Jason Hale. A detective's ID, half eaten by the fire.",
-        "duration": 4.0
+        "duration": 4.0,
+        "shot": "jason_close"
       },
+      {
+        "speaker": "Jason",
+        "text": "That's my face.",
+        "duration": 2.5,
+        "shot": "id"
+      }
+    ]
+  },
+  "half_burned_id": {
+    "title": "Flashback 1: the ambush",
+    "lines": [
       {
         "speaker": "",
         "text": "A corridor. Footsteps behind you, fast. You start to turn.",

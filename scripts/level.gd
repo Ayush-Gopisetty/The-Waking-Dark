@@ -617,6 +617,8 @@ func _meet_daniel() -> void:
 
 func _on_fragment_finished(fragment_id: String) -> void:
 	match fragment_id:
+		"id_found":
+			GameState.flashback_requested.emit("half_burned_id")  # the memory it brings back
 		"half_burned_id":
 			_furnace_ambush()
 		"daniel_meeting", "daniel_meeting_unknown":

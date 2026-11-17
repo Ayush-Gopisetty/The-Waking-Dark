@@ -135,24 +135,10 @@ func _process(delta: float) -> void:
 		# Looking down, slide the body back so the camera never sees inside the collar.
 		body.position = BODY_OFFSET + Vector3(0, 0, maxf(0.0, -pitch - 0.5) * 0.3)
 		body.look_target = Vector3.INF
-		# The ID is read at arm's length, a little left of centre and below the eyeline.
-		body.id_read_point = camera.global_position + cam * Vector3(-0.07, -0.1, -0.25)
-		body.id_eye = camera.global_position
 	else:
 		body.grip_point = Vector3.INF
-		body.id_read_point = Vector3.INF
-		body.id_eye = Vector3.INF
 	body.holding = flashlight.owned
 	_hold_flashlight()
-
-
-## Jason lifts the half-burned ID up in his free hand and studies it; the
-## flashback hits while he's still staring at it.
-func examine_id(fragment_id: String) -> void:
-	GameState.cutscene = true  # he stands still, looking at it
-	body.look_at_id()
-	await get_tree().create_timer(3.0).timeout
-	GameState.flashback_requested.emit(fragment_id)
 
 
 ## Puts the flashlight model in Jason's right hand (CharacterRig poses the grip).

@@ -12,6 +12,11 @@ extends Node3D
 ## Without a gesture, the speaker talks and the other one listens.
 ## "at" names a point from `points` for "point" gestures and the door/moon shots.
 ## "approach" walks Daniel up to Jason.
+##
+## A fragment with "solo": true is a scene of Jason alone (Daniel is elsewhere).
+## Its shots frame Jason as if the other person were straight ahead of him; the
+## extra shot "id" looks over his shoulder at the ID in his hand, and a line with
+## "id": "raise" (and optionally "id_hold": seconds) has him lift it up to read.
 
 ## Named world points for shots and pointing (filled in by the level).
 var points: Dictionary[String, Vector3] = {}
@@ -24,6 +29,7 @@ var _at := ""
 var _shot_time := 0.0
 var _shot_length := 3.0
 var _daniel_turns := 0
+var _solo := false
 
 
 func _ready() -> void:
@@ -32,9 +38,10 @@ func _ready() -> void:
 	GameState.scene_ended.connect(_on_scene_ended)
 
 
-func _on_scene_started(_fragment_id: String) -> void:
+func _on_scene_started(fragment_id: String) -> void:
 	var player := GameState.player
-	if player == null or daniel == null:
+	_solo = bool(GameState.fragments.get(fragment_id, {}).get("solo", false))
+	if player == null or (daniel == null and not _solo):
 		return
 	active = true
 	GameState.third_person = true
@@ -48,8 +55,9 @@ func _on_scene_started(_fragment_id: String) -> void:
 		jason.first_person = false
 		jason.position = Vector3.ZERO
 		jason.play("idle")
-	daniel.directed = true
-	daniel.play("idle")
+	if not _solo:
+		daniel.directed = true
+		daniel.play("idle")
 	camera = Camera3D.new()
 	camera.near = 0.05
 	add_child(camera)
@@ -70,15 +78,18 @@ func _on_scene_line(_fragment_id: String, line: Dictionary) -> void:
 
 	var daniel_gesture: String = line.get("daniel", "talk" if speaker == "daniel" else "idle")
 	var jason_gesture: String = line.get("jason", "talk" if speaker == "jason" else "idle")
-	if daniel_gesture == "point" and target == Vector3.INF:
-		target = jason.head_position()
-	daniel.play(daniel_gesture, target)
+	if not _solo:
+		if daniel_gesture == "point" and target == Vector3.INF:
+			target = jason.head_position()
+		daniel.play(daniel_gesture, target)
 	if jason != null:
 		var jason_target := target
-		if jason_gesture == "point" and _at.is_empty():
+		if jason_gesture == "point" and _at.is_empty() and not _solo:
 			jason_target = daniel.bandaged_hand_position()
 		jason.play(jason_gesture, jason_target)
-	if line.get("approach", false):
+		if line.get("id", "") == "raise":
+			jason.look_at_id(float(line.get("id_hold", 3.5)))
+	if line.get("approach", false) and not _solo:
 		var to := daniel.global_position - player.global_position
 		to.y = 0.0
 		var stop := player.global_position + to.normalized() * 1.5
@@ -112,9 +123,12 @@ func _on_scene_ended(_fragment_id: String) -> void:
 			player.body.position = Player.BODY_OFFSET
 			player.body.play("idle")
 			player.body.look_target = Vector3.INF
-	if daniel != null:
+		if player.body != null:
+			player.body.stop_id()
+	if daniel != null and not _solo:
 		daniel.directed = false
 		daniel.play("idle")
+	_solo = false
 	if camera != null:
 		camera.queue_free()
 		camera = null
@@ -132,12 +146,35 @@ func _process(delta: float) -> void:
 	_shot_time += delta
 	var player := GameState.player
 	var jason := player.body
-	# Everyone looks at whoever they're talking to; Daniel keeps facing Jason.
-	var d_head := daniel.head_position()
 	var j_head := jason.head_position() if jason != null else player.camera.global_position
-	daniel.look_target = j_head
-	if jason != null:
-		jason.look_target = d_head if _shot != "moon" else points.get("moon_window", d_head)
+	var d_head: Vector3
+	if _solo:
+		# Jason alone: frame him as if the other person were two metres ahead of him.
+		d_head = j_head + -player.global_basis.z * 2.0
+		if jason != null:
+			jason.look_target = Vector3.INF
+	else:
+		# Everyone looks at whoever they're talking to; Daniel keeps facing Jason.
+		d_head = daniel.head_position()
+		daniel.look_target = j_head
+		if jason != null:
+			jason.look_target = d_head if _shot != "moon" else points.get("moon_window", d_head)
+		_turn_daniel(player, delta)
+
+	var frame := _frame(_shot, d_head, j_head)
+	var from: Vector3 = frame[0]
+	var look: Vector3 = frame[1]
+	# A slow push-in over the line.
+	var push := smoothstep(0.0, 1.0, _shot_time / _shot_length) * 0.22
+	from += (look - from).normalized() * push
+	camera.fov = frame[2]
+	camera.global_position = _unblocked(look, from)
+	if not camera.global_position.is_equal_approx(look):
+		camera.look_at(look, Vector3.UP)
+
+
+## Daniel turns to face Jason (or, pointing, most of the way toward what he points at).
+func _turn_daniel(player: Player, delta: float) -> void:
 	var face := player.global_position - daniel.global_position
 	if daniel.gesture == CharacterRig.Gesture.POINT and daniel.gesture_target != Vector3.INF and daniel._speed < 0.3:
 		# Pointing somewhere else (even behind him): he turns most of the way toward
@@ -153,17 +190,6 @@ func _process(delta: float) -> void:
 	elif daniel._speed >= 0.3:
 		daniel.rotation.y = lerp_angle(daniel.rotation.y, atan2(-face.x, -face.z), minf(1.0, 8.0 * delta))
 
-	var frame := _frame(_shot, d_head, j_head)
-	var from: Vector3 = frame[0]
-	var look: Vector3 = frame[1]
-	# A slow push-in over the line.
-	var push := smoothstep(0.0, 1.0, _shot_time / _shot_length) * 0.22
-	from += (look - from).normalized() * push
-	camera.fov = frame[2]
-	camera.global_position = _unblocked(look, from)
-	if not camera.global_position.is_equal_approx(look):
-		camera.look_at(look, Vector3.UP)
-
 
 ## [camera position, look-at point, fov] for a shot.
 func _frame(shot: String, d_head: Vector3, j_head: Vector3) -> Array:
@@ -177,6 +203,18 @@ func _frame(shot: String, d_head: Vector3, j_head: Vector3) -> Array:
 	# Close-ups sit off to the side so they never end up inside the other head.
 	var close := minf(1.1, gap * 0.6)
 	match shot:
+		"id":
+			# From just beside his head at eye level, looking down at the ID in his
+			# hand (its printed side is turned to his eyes, so this sees it face on).
+			var jason := GameState.player.body
+			var ahead := (d_head - j_head).normalized()
+			var card: Vector3 = j_head + Vector3(0, -0.45, 0) + ahead * 0.3
+			if jason != null and jason.id_card_position() != Vector3.INF:
+				card = jason.id_card_position()
+			var side := ahead.cross(Vector3.UP).normalized()  # his right
+			# Close on the line from the card up toward his eyes, a little to his right.
+			var to_eyes := (j_head - card).normalized()
+			return [card + to_eyes * 0.33 + side * 0.13, card, 24.0]
 		"daniel":
 			return [j_head - ab * 0.95 + right * 0.55 + Vector3(0, 0.05, 0), d_head - Vector3(0, 0.12, 0), 40.0]
 		"jason":
