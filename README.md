@@ -148,6 +148,16 @@ The old signed-distance sculpt (`tools/bake_monster.gd`, the `.res` parts in
 
 The preview tools open a window, so don't cover it while they render.
 
+## Audio
+
+Recorded sounds (CC0, see `assets/CREDITS.md`) live in `assets/audio/` and are loaded by
+`scripts/sound_bank.gd` as numbered sets: footsteps per surface (`steps/<surface>_NN.wav`;
+`level.gd` maps each room to wood, concrete, carpet, metal or stairs), door creaks, the
+wind loop and the spirit's voice (shriek, snarl, pained cry, weak rasp and breathing, by
+VoiceBosch, CC BY-SA 4.0: credit them). Jason's heartbeat (faster as a spirit closes in) and breathing
+(when winded, or hiding with a spirit near) are synthesised in `scripts/audio_gen.gd`, as are
+the spirit's light reactions, the drone, the music layers and the small effects.
+
 ## Look and characters
 
 - **Environment art** (`scripts/level.gd`): wallpaper and floorboard textures with normal
@@ -166,7 +176,8 @@ The preview tools open a window, so don't cover it while they render.
   third-person camera with letterbox bars. Each line in `data/memory_fragments.json` can
   set `"shot"` (wide, daniel, jason, daniel_close, jason_close, jason_right, hand, moon, door),
   gestures (`"daniel"`, `"jason"`), `"at"` (a named point to point at) and `"approach"`.
-  Capture every line of the real cutscenes:
+  Capture every line of the real cutscenes (the ID find, the meeting with Daniel and the
+  east wing finale):
   `$GODOT --path . res://tools/cutscene_shots.tscn -- /tmp/cuts`.
 - `tools/scene_shots.tscn` renders a few views of the real level.
 

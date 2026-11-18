@@ -2,6 +2,7 @@ extends Node
 ## Plays the real cutscenes and saves a frame from each line, plus Jason's
 ## first-person body (needs a window):
 ##   godot --path . res://tools/cutscene_shots.tscn -- <output_dir>
+## Covers the ID find, the meeting with Daniel and the east wing moon finale.
 
 var _out := ""
 var _line := 0
@@ -33,8 +34,25 @@ func _ready() -> void:
 	player.head.rotation.x = 0.0
 
 	GameState.scene_line.connect(_on_line)
+
+	# Finding the ID: Jason takes it from the furnace grate, holds it up and reads it.
+	_scene = "id"
+	_line = 0
+	player.global_position = Vector3(18.4, 0.05, 4.5)
+	player.rotation.y = -PI / 2.0  # facing the furnace
+	await _frames(30)
+	for node in level.get_children():
+		var pickup := node as Pickup
+		if pickup != null and pickup.kind == Pickup.Kind.ID:
+			pickup.interact(player)
+			break
+	await _wait(func() -> bool: return GameState.cutscene, 3.0)
+	await _wait(func() -> bool: return not GameState.cutscene, 90.0)
+	await _frames(30)
+	await _save("after_id")
 	# Meeting Daniel: walk into the trigger at the top of the service stairs.
 	_scene = "meet"
+	_line = 0
 	player.global_position = Vector3(10.0, 1.25, -2.2)
 	player.rotation.y = 0.0
 	await _wait(func() -> bool: return not GameState.cutscene and level._met_daniel and not level.director.active, 90.0)

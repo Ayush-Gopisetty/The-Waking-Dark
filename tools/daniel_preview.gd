@@ -57,6 +57,12 @@ func _ready() -> void:
 		daniel.play(g)
 		await _run(daniel, 1.2)
 		await _shot(out, "hands_" + g, Vector3(0.35, 1.2, -1.0), Vector3(0, 1.05, 0), 45.0)
+	# The bandaged, bloodied hand up close (palm side, back, and from the wrist).
+	daniel.play("show_hand")
+	await _run(daniel, 1.4)
+	var hand_at := daniel.bandaged_hand_position()
+	for view: Array in [["front", Vector3(0.0, 0.08, -0.38)], ["side", Vector3(-0.38, 0.1, -0.1)], ["above", Vector3(0.1, 0.4, -0.15)]]:
+		await _shot(out, "bandage_" + view[0], hand_at + view[1], hand_at + Vector3(0, -0.05, 0), 30.0)
 	daniel.play("idle")
 	await _run(daniel, 1.5)
 	daniel.play("talk")

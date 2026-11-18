@@ -19,6 +19,10 @@ const SHOTS := [
 	["avert_left", Vector3(-1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "avert_left", true],
 	["shy", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "shy", true],
 	["flee", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "flee", true],
+	["notice", Vector3(0.0, 1.5, -2.8), Vector3(0.0, 1.2, 0.0), "notice", true],
+	["catch", Vector3(0.0, 1.5, -2.8), Vector3(0.0, 1.2, 0.0), "catch", true],
+	["look_left", Vector3(0.0, 1.6, -2.4), Vector3(0.0, 1.5, 0.0), "look_left", true],
+	["look_up", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.5, 0.0), "look_up", true],
 	["corridor_dark", Vector3(0.6, 1.6, -5.5), Vector3(0.0, 1.2, 0.0), "walk", true],
 ]
 
@@ -47,6 +51,11 @@ func _capture_all(out_dir: String) -> void:
 		_body.avert_side = 1.0
 		_body.shy = 0.0
 		_body.stumbling = false
+		_body.notice = false
+		_body.catching = false
+		_body.look_yaw = 0.0
+		_body.look_pitch = 0.0
+		_body.look_weight = 0.0
 		for i in 90:
 			if pose == "push" and i == 84:
 				_body.push_back()
@@ -75,6 +84,22 @@ func _pose(pose: String, delta: float) -> void:
 			_body.animate(delta, 0.0, false, 0.0)
 		"shy":
 			_body.shy = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"notice":
+			_body.notice = true
+			_body.look_weight = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"catch":
+			_body.catching = true
+			_body.look_weight = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"look_left":
+			_body.look_yaw = 0.9
+			_body.look_weight = 1.0
+			_body.animate(delta, 0.0, false, 0.0)
+		"look_up":
+			_body.look_pitch = 0.4
+			_body.look_weight = 1.0
 			_body.animate(delta, 0.0, false, 0.0)
 		"flee":
 			_body.stumbling = true

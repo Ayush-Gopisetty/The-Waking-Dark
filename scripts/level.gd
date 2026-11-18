@@ -84,6 +84,8 @@ var _time := 0.0
 var _tension: AudioStreamPlayer
 var _chase: AudioStreamPlayer
 var _chanting: AudioStreamPlayer
+var _heartbeat: AudioStreamPlayer
+var _breathing: AudioStreamPlayer
 var _music_on := false
 var _met_daniel := false
 var _case_tried_at := -1.0
@@ -897,9 +899,12 @@ func _wall_trim(mid: Vector2, direction: Vector2, along: float, bottom: float, t
 		layers.append([crown_y, 0.12, 0.07, _trim_material])  # crown moulding
 	for layer: Array in layers:
 		var thickness: float = WALL_THICKNESS + layer[2] * 2.0
-		var size := Vector3(along, layer[1], thickness)
+		# A few millimetres short at each end, so the trim's end faces are never in the same
+		# plane as the wall's (that flickered at every doorway jamb).
+		var trim_length := along - 0.008
+		var size := Vector3(trim_length, layer[1], thickness)
 		if across:
-			size = Vector3(thickness, layer[1], along)
+			size = Vector3(thickness, layer[1], trim_length)
 		_box(Vector3(mid.x, layer[0], mid.y), size, layer[3], false)
 
 
@@ -1198,12 +1203,49 @@ func _on_door_unlocked() -> void:
 
 # --- Audio --------------------------------------------------------------------------
 
+## What the floor is made of under a point (footstep sounds).
+func _surface_at(pos: Vector3) -> String:
+	match room_at(pos):
+		"abandoned_room", "servants_hall", "storage", "kitchen":
+			return "concrete"
+		"furnace_room":
+			return "metal"
+		"service_stairs":
+			return "stairs"
+		"library", "study":
+			return "carpet"
+	return "wood"
+
+
 func _start_audio() -> void:
+	GameState.surface_provider = _surface_at
 	var ambience := AudioStreamPlayer.new()
 	ambience.stream = AudioGen.ambience()
-	ambience.volume_db = -16.0
+	ambience.volume_db = -22.0
 	add_child(ambience)
 	ambience.play()
+
+	# Recorded wind through the house, over the low room tone.
+	var wind_stream := SoundBank.loop("ambience/wind_loop.wav")
+	if wind_stream != null:
+		var wind := AudioStreamPlayer.new()
+		wind.stream = wind_stream
+		wind.volume_db = -14.0
+		add_child(wind)
+		wind.play()
+
+	# Jason's own body: a heartbeat that quickens as a spirit closes in, and his
+	# breathing when he runs out of breath or hides with one nearby.
+	_heartbeat = AudioStreamPlayer.new()
+	_heartbeat.stream = AudioGen.heartbeat()
+	_heartbeat.volume_db = -60.0
+	add_child(_heartbeat)
+	_heartbeat.play()
+	_breathing = AudioStreamPlayer.new()
+	_breathing.stream = AudioGen.breathing()
+	_breathing.volume_db = -60.0
+	add_child(_breathing)
+	_breathing.play()
 
 	# Father Crane's chanting: faint from the start, louder after the library.
 	_chanting = AudioStreamPlayer.new()
@@ -1226,7 +1268,32 @@ func _start_audio() -> void:
 	_chase.play()
 
 
+func _update_body_sounds(delta: float) -> void:
+	var player := GameState.player
+	if _heartbeat == null or player == null:
+		return
+	var nearest := INF
+	for node in get_children():
+		var spirit := node as Spirit
+		if spirit != null and spirit.state != Spirit.State.RETREAT and absf(spirit.global_position.y - player.global_position.y) < 2.5:
+			nearest = minf(nearest, spirit.global_position.distance_to(player.global_position))
+	var fear := clampf(1.0 - (nearest - 2.0) / 9.0, 0.0, 1.0) if nearest < INF else 0.0
+	var blend := minf(1.0, 2.5 * delta)
+	_heartbeat.volume_db = lerpf(_heartbeat.volume_db, lerpf(-60.0, -7.0, fear * fear) if fear > 0.05 else -60.0, blend)
+	_heartbeat.pitch_scale = lerpf(_heartbeat.pitch_scale, lerpf(0.9, 1.6, fear), blend)
+	var out_of_breath := player.exhausted or (player.sprinting and player.stamina < 0.5)
+	var held_breath := player.hidden and fear > 0.3
+	var breathing_db := -60.0
+	if out_of_breath:
+		breathing_db = -8.0
+	elif held_breath:
+		breathing_db = -18.0 + 8.0 * fear
+	_breathing.volume_db = lerpf(_breathing.volume_db, breathing_db, blend)
+	_breathing.pitch_scale = lerpf(_breathing.pitch_scale, 1.35 if out_of_breath else 1.0, blend)
+
+
 func _update_music(delta: float) -> void:
+	_update_body_sounds(delta)
 	if _tension == null:
 		return
 	var chasing := false

@@ -176,10 +176,79 @@ func _ready() -> void:
 		_len[s + "_shin"] = _rest(side + "LowerLeg").distance_to(_rest(side + "Foot"))
 		_measure_hand(side, s)
 	_measure_body()
+	if bandaged_left:
+		_attach_bandage("Left", "L")
 	_apply_first_person()
 	if not speaker_name.is_empty():
 		GameState.line_shown.connect(_on_line_shown)
 	_pose(0.0)
+
+
+## The bandage on Daniel's hand: a gauze wrap around the wrist and palm, soaked through
+## with blood (assets/models/daniel_bandage.png), riding on the hand bone. (The model's
+## own small wrist band sits hidden under the cuff, so it is switched off.)
+func _attach_bandage(side: String, s: String) -> void:
+	if not _b.has(side + "Hand") or not _knuckle_local.has(s):
+		return
+	for mesh: MeshInstance3D in model.find_children("*Bandage*", "MeshInstance3D", true, false):
+		mesh.visible = false
+	var along: Vector3 = _knuckle_local[s].normalized()
+	# (the stored palm normal for this bone points out of the back of the hand)
+	var palm: Vector3 = -(_palm_local[s] - along * _palm_local[s].dot(along)).normalized()
+	var across := along.cross(palm).normalized()
+	var attach := BoneAttachment3D.new()
+	attach.bone_name = side + "Hand"
+	skeleton.add_child(attach)
+	var wrap := MeshInstance3D.new()
+	wrap.mesh = _bandage_mesh()
+	wrap.basis = Basis(across, along, palm)  # mesh: x across the hand, y toward the knuckles, z out of the palm
+	wrap.position = palm * 0.014 + along * 0.008  # the bone runs nearer the back of the hand than its middle
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load("res://assets/models/daniel_bandage.png")
+	mat.roughness = 0.95
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	wrap.material_override = mat
+	attach.add_child(wrap)
+
+
+## A lumpy elliptical tube (wrist -> knuckles), slightly bulged over the palm, with
+## rolled ends. UV: u around the wrap, v along it.
+func _bandage_mesh() -> ArrayMesh:
+	var rings := 16
+	var segments := 28
+	var y0 := -0.05
+	var y1 := 0.092
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var grid: Array = []
+	for i in rings + 1:
+		var t := float(i) / rings
+		var y := lerpf(y0, y1, t)
+		# Narrow at the wrist, wider across the palm; the ends roll out a little.
+		var width := lerpf(0.036, 0.054, smoothstep(0.1, 0.6, t)) * (1.0 + 0.1 * (1.0 - smoothstep(0.0, 0.08, t)) + 0.06 * smoothstep(0.92, 1.0, t))
+		var thick := lerpf(0.032, 0.04, smoothstep(0.1, 0.6, t)) * (1.0 + 0.1 * (1.0 - smoothstep(0.0, 0.08, t)))
+		var row: Array = []
+		for j in segments + 1:
+			var a := TAU * float(j) / segments
+			var lump := 1.0 + 0.04 * sin(a * 3.0 + t * 9.0) + 0.03 * sin(t * 23.0 + a * 5.0)
+			row.append(Vector3(cos(a) * width * lump, y, sin(a) * thick * lump))
+		grid.append(row)
+	for i in rings:
+		for j in segments:
+			var a: Vector3 = grid[i][j]
+			var b: Vector3 = grid[i][j + 1]
+			var c: Vector3 = grid[i + 1][j]
+			var d: Vector3 = grid[i + 1][j + 1]
+			var uv_a := Vector2(float(j) / segments, float(i) / rings)
+			var uv_b := Vector2(float(j + 1) / segments, float(i) / rings)
+			var uv_c := Vector2(float(j) / segments, float(i + 1) / rings)
+			var uv_d := Vector2(float(j + 1) / segments, float(i + 1) / rings)
+			for tri: Array in [[a, b, c, uv_a, uv_b, uv_c], [b, d, c, uv_b, uv_d, uv_c]]:
+				for k in 3:
+					st.set_uv(tri[3 + k])
+					st.add_vertex(tri[k])
+	st.generate_normals()
+	return st.commit()
 
 
 ## Measures the clothed torso (elliptical slices from the hips to the armpits)
@@ -254,6 +323,17 @@ func _measure_body() -> void:
 
 ## A point on the head's surface (skeleton space) in the direction `dir` from its
 ## centre (head-local: +X his left, +Y up, +Z forward), `margin` outside it.
+func _head_surface_for_hand(dir: Vector3, margin: float) -> Vector3:
+	# The head-touch is keyed for the right hand and mirrored for the left (holding the
+	# flashlight). Mirroring a point across the body's centre line misses a head that is
+	# turned, so for the left hand the point is found on the head itself (direction
+	# flipped), then mirrored back so the final mirror lands it on the real head.
+	if not holding:
+		return _head_surface(dir, margin)
+	var p := _head_surface(Vector3(-dir.x, dir.y, dir.z), margin)
+	return p * Vector3(-1, 1, 1)
+
+
 func _head_surface(dir: Vector3, margin: float) -> Vector3:
 	var d := dir.normalized()
 	return skeleton.get_bone_global_pose(_b["Head"]) * (_head_c + d * (_head_r + Vector3.ONE * margin))
@@ -891,9 +971,11 @@ func _arm_targets(t: float, walk_swing: float) -> Dictionary:
 				[0.0, _mirror_arm(out[h], holding)],
 				[0.55, _arm(Vector3(-0.27, 1.22, 0.24), Vector3(-0.8, 0.9, -0.1), Vector3(0.6, 0.3, 0.6), 0.4)],
 				# (points on the head itself, so the hand rests on it wherever the head is)
-				[1.0, _arm(_head_surface(Vector3(-1.0, -0.2, 0.15), 0.05), Vector3(-0.95, 1.55, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
-				[1.5, _arm(_head_surface(Vector3(-0.4, -0.12 + rub * 6.0, -1.0), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.55)],
-				[2.2, _arm(_head_surface(Vector3(-0.45, -0.18 - rub * 6.0, -0.95), 0.04), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.6)],
+				[1.0, _arm(_head_surface_for_hand(Vector3(-1.0, -0.2, 0.15), 0.05), Vector3(-0.95, 1.55, 0.35), Vector3(0.9, 0.0, 0.3), 0.45)],
+				# (a stop on the way round, so the hand follows the curve of the skull instead of cutting across it)
+				[1.25, _arm(_head_surface_for_hand(Vector3(-0.85, -0.15, -0.55), 0.06), Vector3(-0.95, 1.7, 0.28), Vector3(0.55, -0.05, 0.65), 0.5)],
+				[1.5, _arm(_head_surface_for_hand(Vector3(-0.4, -0.12 + rub * 6.0, -1.0), 0.05), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.55)],
+				[2.2, _arm(_head_surface_for_hand(Vector3(-0.45, -0.18 - rub * 6.0, -0.95), 0.05), Vector3(-0.95, 1.85, 0.2), Vector3(0.2, -0.1, 1.0), 0.6)],
 				# (comes away from the head to the side first, then forward: never across the face)
 				[2.6, _arm(Vector3(-0.4, 1.46, 0.34), Vector3(-0.85, 1.4, 0.1), Vector3(0.4, 0.25, 0.2), 0.5)],
 				[3.1, _arm(Vector3(-0.1, 1.42, 0.3), Vector3(-0.75, 1.1, 0.0), Vector3(0.1, 0.35, -0.95), 0.45)],

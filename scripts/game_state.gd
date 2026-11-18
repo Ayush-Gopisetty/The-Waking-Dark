@@ -68,6 +68,9 @@ var checkpoint: Dictionary = {}
 var restoring := false
 var deaths_since_checkpoint := 0
 
+## Set by the level: returns the floor surface name ("wood", "concrete", ...) at a point.
+var surface_provider := Callable()
+
 var _sfx: Dictionary = {}
 var _sfx_player: AudioStreamPlayer
 
@@ -265,7 +268,21 @@ func emit_noise(pos: Vector3, radius: float) -> void:
 		noise_emitted.emit(pos, radius)
 
 
+## "wood", "concrete", "carpet", "metal" or "stairs" under a world position.
+func surface_at(pos: Vector3) -> String:
+	if surface_provider.is_valid():
+		return surface_provider.call(pos)
+	return "wood"
+
+
 func play_sfx(sound: String, volume_db: float = 0.0) -> void:
+	if sound == "creak":
+		var door_sound := SoundBank.pick("doors", "door_creak")
+		if door_sound != null:
+			_sfx_player.stream = door_sound
+			_sfx_player.volume_db = -8.0 + volume_db
+			_sfx_player.play()
+			return
 	if not _sfx.has(sound):
 		var stream: AudioStream = null
 		match sound:

@@ -173,7 +173,7 @@ static func furnace(size: Vector3, fire: Material) -> Node3D:
 	# Firing door on the -X face: frame, glowing opening with bars, handle, ash pan.
 	var fx := -size.x * 0.5 - 0.025
 	_box(root, Vector3(fx, leg + body_h * 0.52, 0), Vector3(0.05, 0.62, 0.78), _darker(iron()))
-	_box(root, Vector3(fx - 0.016, leg + body_h * 0.52, 0), Vector3(0.02, 0.46, 0.62), fire)
+	_box(root, Vector3(fx - 0.026, leg + body_h * 0.52, 0), Vector3(0.02, 0.46, 0.62), fire)  # proud of the door frame, not flush with it
 	for i in 5:
 		_box(root, Vector3(fx - 0.03, leg + body_h * 0.52, -0.27 + i * 0.135), Vector3(0.025, 0.5, 0.025), iron())
 	_cyl(root, Vector3(fx - 0.05, leg + body_h * 0.52 - 0.28, 0.3), 0.012, 0.16, brass(), Vector3(PI * 0.5, 0, 0))

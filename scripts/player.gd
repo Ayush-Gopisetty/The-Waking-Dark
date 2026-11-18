@@ -269,8 +269,11 @@ func _step(distance: float) -> void:
 	if _step_distance < stride:
 		return
 	_step_distance = 0.0
-	footsteps.volume_db = -26.0 if crouching else (-8.0 if sprinting else -15.0)
-	footsteps.pitch_scale = randf_range(0.85, 1.15)
+	var step_sound := SoundBank.pick("steps", GameState.surface_at(global_position))
+	if step_sound != null:
+		footsteps.stream = step_sound
+	footsteps.volume_db = -24.0 if crouching else (-4.0 if sprinting else -12.0)
+	footsteps.pitch_scale = randf_range(0.92, 1.08)
 	footsteps.play()
 	GameState.emit_noise(global_position, noise_radius)
 

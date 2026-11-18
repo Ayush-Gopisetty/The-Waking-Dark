@@ -154,24 +154,6 @@ static func rattle() -> AudioStreamWAV:
 	return _wav(_normalize(out, 0.7))
 
 
-## Spirit noticing the player: falling dissonant shriek.
-static func screech() -> AudioStreamWAV:
-	var n := int(RATE * 1.1)
-	var noise := _noise(n, 3000.0, _rng(67))
-	var out := PackedFloat32Array()
-	out.resize(n)
-	var p1 := 0.0
-	var p2 := 0.0
-	for i in n:
-		var t := float(i) / n
-		var f := lerpf(930.0, 410.0, t)
-		p1 += f / RATE
-		p2 += f * 1.06 / RATE
-		var env := minf(1.0, t * 25.0) * exp(-3.0 * t)
-		out[i] = env * (0.35 * sin(TAU * p1) + 0.3 * sin(TAU * p2) + 0.5 * noise[i])
-	return _wav(_normalize(out, 0.85))
-
-
 ## Memory flashback: rising swell.
 static func flashback() -> AudioStreamWAV:
 	var n := int(RATE * 1.6)
@@ -259,3 +241,117 @@ static func chase() -> AudioStreamWAV:
 		var thump := exp(-beat * 22.0) + 0.6 * exp(-maxf(0.0, beat - 0.16) * 26.0) * float(beat > 0.16)
 		out[i] = thump * (sin(TAU * 52.0 * t) + noise[i] * 0.8) + 0.18 * sin(TAU * 110.0 * t) * sin(TAU * 116.5 * t)
 	return _wav(_normalize(out, 0.75), true)
+
+
+## A heartbeat (lub-dub) loop, one beat per second at normal pitch.
+static func heartbeat() -> AudioStreamWAV:
+	var n := RATE
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for beat in [[0.0, 1.0], [0.3, 0.65]]:
+		var start := int(beat[0] * RATE)
+		for i in int(RATE * 0.22):
+			if start + i >= n:
+				break
+			var t := float(i) / RATE
+			var freq := lerpf(78.0, 42.0, minf(1.0, t / 0.12))
+			out[start + i] += beat[1] * sin(TAU * freq * t) * exp(-t * 22.0)
+	return _wav(_normalize(out, 0.9), true)
+
+
+## Slow breathing through the nose: an inhale and a longer exhale, 4.4 s loop.
+static func breathing() -> AudioStreamWAV:
+	var n := int(RATE * 4.4)
+	var rng := _rng(61)
+	var air := _noise(n, 1500.0, rng)
+	var hiss := _noise(n, 3500.0, rng)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		var env := 0.0
+		if t < 1.4:
+			env = sin(PI * t / 1.4)  # inhale
+		elif t > 1.7 and t < 3.9:
+			env = 0.8 * sin(PI * (t - 1.7) / 2.2)  # exhale
+		out[i] = env * (air[i] * 0.8 + hiss[i] * 0.25)
+	return _wav(_normalize(out, 0.7), true)
+
+
+## A sharp, short intake of breath through the teeth (a spirit flinching from light).
+static func hiss() -> AudioStreamWAV:
+	var n := int(RATE * 0.4)
+	var rng := _rng(71)
+	var wide := _noise(n, 7000.0, rng)
+	var low := _noise(n, 1800.0, _rng(72))
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / n
+		var env := minf(1.0, t * 14.0) * exp(-4.0 * t)
+		out[i] = env * (wide[i] - low[i] * 0.9)
+	return _wav(_normalize(out, 0.8))
+
+
+## Burning static: crackling pops over a thin hiss (loops).
+static func crackle() -> AudioStreamWAV:
+	var n := RATE * 2
+	var rng := _rng(73)
+	var bed := _noise(n, 3500.0, rng)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var pop := 0.0
+	for i in n:
+		if rng.randf() < 55.0 / RATE:
+			pop = rng.randf_range(0.5, 1.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+		pop *= 0.985
+		out[i] = bed[i] * 0.35 + pop * rng.randf_range(0.4, 1.0)
+	return _wav(_normalize(out, 0.7), true)
+
+
+## A low thud as something is thrown back.
+static func thump() -> AudioStreamWAV:
+	var n := int(RATE * 0.5)
+	var rumble := _noise(n, 220.0, _rng(74))
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		phase += lerpf(70.0, 32.0, minf(1.0, t / 0.25)) / RATE
+		out[i] = exp(-t * 9.0) * (sin(TAU * phase) + rumble[i] * 3.0 * exp(-t * 20.0))
+	return _wav(_normalize(out, 0.95))
+
+
+## A rushing of smoke tearing away: noise whose brightness falls as it fades.
+static func smoke_rush() -> AudioStreamWAV:
+	var n := int(RATE * 0.9)
+	var bright := _noise(n, 2800.0, _rng(75))
+	var dark := _noise(n, 500.0, _rng(76))
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / n
+		var env := minf(1.0, t * 9.0) * pow(1.0 - t, 1.6)
+		out[i] = env * lerpf(bright[i], dark[i] * 2.5, t)
+	return _wav(_normalize(out, 0.85))
+
+
+## A hushed, breathy whisper (no words): four soft syllables.
+static func whisper() -> AudioStreamWAV:
+	var n := int(RATE * 1.4)
+	var rng := _rng(78)
+	var wide := _noise(n, 4200.0, rng)
+	var low := _noise(n, 1100.0, _rng(79))
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var starts := [0.05, 0.38, 0.7, 1.0]
+	for i in n:
+		var t := float(i) / RATE
+		var env := 0.0
+		for s: float in starts:
+			var d := t - s
+			if d > 0.0 and d < 0.28:
+				env = maxf(env, sin(PI * d / 0.28))
+		out[i] = env * (wide[i] - low[i] * 0.8)
+	return _wav(_normalize(out, 0.6))

@@ -74,6 +74,18 @@ func _run() -> void:
 	await _frames(90)
 	_check(player.head.position.y > 1.3, "Jason gets up (eye %.2fm)" % player.head.position.y)
 
+	# Recorded audio: every set loaded, the right surface under each room, body sounds running.
+	for set_name: Array in [["steps", "wood"], ["steps", "concrete"], ["steps", "carpet"], ["steps", "metal"], ["steps", "stairs"], ["doors", "door_creak"], ["spirit", "shriek"], ["spirit", "snarl"], ["spirit", "pained"], ["spirit", "weak"]]:
+		_check(SoundBank.clips(set_name[0], set_name[1]).size() >= 1, "recorded %s/%s clips are loaded (%d)" % [set_name[0], set_name[1], SoundBank.clips(set_name[0], set_name[1]).size()])
+	_check(GameState.surface_at(Vector3(-3, 0.05, 4.5)) == "concrete", "the abandoned room has a concrete floor")
+	_check(GameState.surface_at(Vector3(19, 0.05, 4.5)) == "metal", "the furnace room has metal underfoot")
+	_check(GameState.surface_at(Vector3(10, 0.5, 1.0)) == "stairs", "the service stairs sound like stairs")
+	_check(GameState.surface_at(Vector3(-11, UP + 0.05, -8)) == "carpet", "the library floor is carpeted")
+	_check(GameState.surface_at(Vector3(8, UP + 0.05, -7)) == "wood", "the foyer floor is wood")
+	var wind_loop := SoundBank.loop("ambience/wind_loop.wav") as AudioStreamWAV
+	_check(wind_loop != null and wind_loop.loop_mode == AudioStreamWAV.LOOP_FORWARD and wind_loop.loop_end > 44100 * 10, "the wind recording loops")
+	_check(_level._heartbeat != null and _level._heartbeat.playing and _level._breathing.playing, "heartbeat and breathing loops are running")
+
 	# Navigation across both floors.
 	var nav_map: RID = hall.nav.get_navigation_map()
 	_check(not _path_reaches(nav_map, Vector3(2, 0, 4.5), Vector3(8, UP, -7)), "locked stairs door keeps the hall spirit downstairs")
@@ -217,6 +229,7 @@ func _run() -> void:
 	_check(relaxed_y < 1.0, "Daniel's arms hang relaxed, not in the A-pose (hand at %.2f m)" % relaxed_y)
 	await get_tree().create_timer(6.0).timeout
 	_check(_gestures_smooth(), "every gesture moves smoothly (no arm flips or snaps)")
+	_check(_gestures_clear_of_body(), "no gesture pushes a forearm or hand into the torso or head")
 	_check(daniel.global_position.distance_to(_level.DANIEL_WATCH) < 0.3, "Daniel goes to watch the door")
 	_check(GameState.repels(daniel.global_position + Vector3(1.5, 0, 0)), "spirits keep away from Daniel")
 	_check(not GameState.checkpoint.is_empty() and GameState.checkpoint_position().y > UP - 0.5, "checkpoint saved after the meeting")
@@ -398,3 +411,52 @@ func _gestures_smooth() -> bool:
 	rig.queue_free()
 	return ok
 
+
+
+## Samples the arms during every gesture (with and without the flashlight in his
+## hand) and fails if a forearm or hand sinks into the torso or head, or an upper
+## arm sinks in more than a centimetre or two (resting against the side is fine).
+func _gestures_clear_of_body() -> bool:
+	var ok := true
+	for model: String in ["jason", "daniel"]:
+		var rig := CharacterRig.new()
+		rig.model_path = "res://assets/models/%s.glb" % model
+		rig.set_process(false)
+		_level.add_child(rig)
+		rig.global_position = Vector3(0, -50, 0)
+		for holding: bool in ([false, true] if model == "jason" else [false]):
+			rig.holding = holding
+			for gesture: String in ["idle", "talk", "calm", "show_hand", "point", "touch_head", "after_you", "startle"]:
+				rig.play(gesture, rig.global_position + Vector3(-1.0, 1.2, -2.0))
+				var worst := 0.0
+				var where := ""
+				for i in 240:
+					rig._process(1.0 / 60.0)
+					for side: String in ["Left", "Right"]:
+						var sh: Vector3 = rig.bone_position(side + "UpperArm")
+						var el: Vector3 = rig.bone_position(side + "LowerArm")
+						var wr: Vector3 = rig.bone_position(side + "Hand")
+						var tip := wr + (wr - el).normalized() * 0.1
+						for k in 9:
+							var p: Vector3
+							var part := "hand"
+							if k < 3:
+								p = sh.lerp(el, (k + 1) / 4.0)
+								part = "upper arm"
+							elif k < 6:
+								p = el.lerp(wr, (k - 2) / 3.0)
+								part = "forearm"
+							else:
+								p = wr.lerp(tip, (k - 5) / 3.0)
+							# bone_position is in world space; the rig measures in skeleton space.
+							var local: Vector3 = rig.skeleton.global_transform.affine_inverse() * p
+							var sink := (rig._push_out(local, 0.0) - local).length()
+							var allowed := 0.02 if part == "upper arm" else 0.01
+							if sink - allowed > worst:
+								worst = sink - allowed
+								where = "%s %s at %.2fs" % [side, part, i / 60.0]
+				if worst > 0.0:
+					print("    %s%s %s: %s sinks %.1f cm too far" % [model, " (holding)" if holding else "", gesture, where, worst * 100.0])
+					ok = false
+		rig.queue_free()
+	return ok

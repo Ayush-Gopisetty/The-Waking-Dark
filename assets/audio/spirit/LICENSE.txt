@@ -1,0 +1,11 @@
+Spirit voice (shriek_01, snarl_01, pained_01, weak_01, breath_idle, breath_hunt)
+
+Source: "Zombies & Ghouls - Audio Pack" by VoiceBosch,
+https://voicebosch.itch.io/zombies-and-ghouls-audio-pack
+License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0),
+https://creativecommons.org/licenses/by-sa/4.0/
+Preferred attribution: VoiceBosch.
+
+Changes made: mixed to mono, trimmed, normalised, faded in and out, and the two
+breathing recordings were cut and joined into seamless loops. Under the
+ShareAlike term, these adapted files are also offered under CC BY-SA 4.0.

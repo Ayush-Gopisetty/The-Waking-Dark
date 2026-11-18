@@ -54,12 +54,27 @@ var _lost_time := 0.0
 var _blocked_time := 0.0
 var _sense_cooldown := 0.0
 var _screech_cooldown := 0.0
+# Light-reaction sounds (see _make_sounds).
+var _fx_a: AudioStreamPlayer3D
+var _fx_b: AudioStreamPlayer3D
+var _burn_loop: AudioStreamPlayer3D
+var _snd_hiss: AudioStream
+var _snd_thump: AudioStream
+var _snd_rush: AudioStream
+var _snd_whisper: AudioStream
+var _breath_idle: AudioStreamPlayer3D
+var _breath_hunt: AudioStreamPlayer3D
+var _drone_gap := 0.0
+var _drone_quiet := 0.0
+var _edge_hissed := false
+var _whisper_cooldown := 3.0
 var _sees_player := false
 var _lit_by_bright := false
 var _was_bright := false
 var _knock := Vector3.ZERO
 var _shove_cooldown := 0.0
 var _blocked_by_light := false
+var _blocked_by_daniel := false
 var _hunting := false
 var _known_spot: Node3D = null
 var _search_spot: Node3D = null
@@ -68,7 +83,8 @@ var _patrol_index := -1
 var _target := Vector3.ZERO
 var _has_target := false
 var _started := false
-var _stride := 0.0
+var _notice_left := 0.0
+var _catching := false
 var _block_pos := Vector3.ZERO
 ## Seconds a scripted block lasts before the spirit gives up (avoids soft-locks).
 const BLOCK_TIMEOUT := 45.0
@@ -84,7 +100,9 @@ func _ready() -> void:
 	GameState.noise_emitted.connect(_on_noise)
 	drone.stream = AudioGen.drone()
 	drone.play()
-	voice.stream = AudioGen.screech()
+	voice.stream = SoundBank.pick("spirit", "shriek")
+	_make_sounds()
+	body.foot_planted.connect(_on_foot_planted)
 	steps.stream = AudioGen.footstep()
 	if GameState.restoring and global_position.distance_to(GameState.checkpoint_position()) < 10.0:
 		var far := global_position
@@ -97,8 +115,72 @@ func _ready() -> void:
 		global_position = far
 
 
+## The sounds a spirit makes around light: a flinch, burning static while the beam
+## holds, a thud and a rush of smoke when it breaks, a wounded keen as it flees, a
+## suppressed hiss at the edge of candlelight and a hush near Daniel.
+func _make_sounds() -> void:
+	_snd_hiss = AudioGen.hiss()
+	_snd_thump = AudioGen.thump()
+	_snd_rush = AudioGen.smoke_rush()
+	_snd_whisper = AudioGen.whisper()
+	_fx_a = _fx_player(1.6, 6.0, 30.0)
+	_fx_b = _fx_player(1.4, 6.0, 30.0)
+	_burn_loop = _fx_player(1.4, 4.0, 20.0)
+	_burn_loop.stream = AudioGen.crackle()
+	_burn_loop.volume_db = -60.0
+	_burn_loop.play()
+	# Its breathing: a slow rasp while it patrols, a heavy hunting breath in a chase.
+	_breath_idle = _breath_player("spirit/breath_idle.wav", -20.0)
+	_breath_hunt = _breath_player("spirit/breath_hunt.wav", -60.0)
+
+
+func _breath_player(path: String, volume_db: float) -> AudioStreamPlayer3D:
+	var p := _fx_player(1.7, 3.0, 16.0)
+	p.stream = SoundBank.loop(path)
+	p.volume_db = volume_db
+	if p.stream != null:
+		p.play(randf() * 5.0)
+	return p
+
+
+func _fx_player(height: float, unit: float, distance: float) -> AudioStreamPlayer3D:
+	var p := AudioStreamPlayer3D.new()
+	p.position = Vector3(0, height, 0)
+	p.unit_size = unit
+	p.max_distance = distance
+	add_child(p)
+	return p
+
+
+func _play_fx(player: AudioStreamPlayer3D, stream: AudioStream, volume_db: float, pitch := 1.0) -> void:
+	if stream == null:
+		return
+	player.stream = stream
+	player.volume_db = volume_db
+	player.pitch_scale = pitch
+	player.play()
+
+
+## Cuts the shriek off short, with a quick fade so it sounds torn away, not clipped.
+func _cut_voice() -> void:
+	if voice != null and voice.playing:
+		var tween := create_tween()
+		tween.tween_property(voice, "volume_db", -40.0, 0.1)
+		tween.tween_callback(voice.stop)
+
+
+func _play_keen() -> void:
+	if state == State.RETREAT:
+		_play_fx(_fx_b, SoundBank.pick("spirit", "pained"), 0.0, randf_range(0.85, 0.95))  # a pained, gasping cry as it flees
+
+
 func _physics_process(delta: float) -> void:
-	if GameState.ended or GameState.cutscene:
+	if GameState.ended:
+		return
+	if _catching:
+		_tick_catch(delta)
+		return
+	if GameState.cutscene:
 		return
 	var player := GameState.player
 	if player == null or not _nav_ready():
@@ -128,7 +210,7 @@ func _physics_process(delta: float) -> void:
 
 	_move(delta, speed)
 	# On patrol, don't stand at the edge of a light: pick another point soon.
-	if state == State.PATROL and _blocked_by_light and _blocked_time >= 1.2:
+	if state == State.PATROL and (_blocked_by_light or _blocked_by_daniel) and _blocked_time >= 1.2:
 		_blocked_time = 0.0
 		_next_patrol_point()
 	if _blocked_time >= light_patience and state != State.BLOCK:
@@ -160,12 +242,11 @@ func _sense(delta: float, player: Player) -> void:
 	_lit_by_bright = fl.bright_covers(_chest()) and _clear_line(fl.global_position, _chest())
 	_shove_cooldown = maxf(0.0, _shove_cooldown - delta)
 	if _lit_by_bright and not _was_bright and _shove_cooldown <= 0.0:
-		_shove(player, 2.4)  # the beam hits: it is pushed back a step
+		_shove(player, 1.6)  # the beam hits: it is pushed back a little
 	_was_bright = _lit_by_bright
 	if _lit_by_bright:
 		weaken_progress += delta
 		if weaken_progress >= weaken_time:
-			_shove(player, 3.6)
 			_enter_retreat(player)
 			return
 	else:
@@ -257,13 +338,19 @@ func _enter_investigate(pos: Vector3) -> void:
 
 
 func _enter_chase(player: Player) -> void:
+	var first_sight := state != State.CHASE
 	if _screech_cooldown <= 0.0:
+		voice.stream = SoundBank.pick("spirit", "shriek")
+		voice.pitch_scale = randf_range(0.92, 1.08)
+		voice.volume_db = 3.0
 		voice.play()
 		_screech_cooldown = 10.0
 	_set_state(State.CHASE)
 	last_known = player.global_position
 	_lost_time = 0.0
 	_known_spot = null
+	if first_sight:
+		_notice_left = 0.7  # the notice beat: it freezes, snaps its head round and opens its jaw
 
 
 func _enter_search(center: Vector3) -> void:
@@ -300,26 +387,51 @@ func _shove(player: Player, strength: float) -> void:
 	_knock = away.normalized() * strength * 0.6
 	_shove_cooldown = 1.5
 	body.push_back()
+	_play_fx(_fx_a, _snd_hiss, 2.0)  # a sharp intake, then the shriek, cut off as if torn
 	if not voice.playing:
-		voice.pitch_scale = 1.5
-		voice.volume_db = -4.0
+		voice.stream = SoundBank.pick("spirit", "snarl")
+		voice.pitch_scale = randf_range(1.1, 1.25)
+		voice.volume_db = 2.0
 		voice.play()
+		get_tree().create_timer(0.35).timeout.connect(_cut_voice)
 
 
 func _enter_retreat(player: Player) -> void:
 	_set_state(State.RETREAT)
+	_play_fx(_fx_a, _snd_thump, 4.0)
+	_play_fx(_fx_b, _snd_rush, 0.0)
+	_drone_gap = 0.7  # the drone cuts out as it breaks
+	_drone_quiet = 18.0  # and comes back weaker
+	get_tree().create_timer(0.6).timeout.connect(_play_keen)
 	weaken_progress = 0.0
 	_see_time = 0.0
 	_lit_by_bright = false
 	last_known = player.global_position
-	# Flee to whichever patrol point is farthest from the player.
+	# Flee to a patrol point well away from the player, by a route that doesn't pass
+	# close to them (so it never runs at the player on its way out).
+	var map := nav.get_navigation_map()
 	var best := global_position
 	var best_distance := -1.0
+	var fallback := global_position
+	var fallback_distance := -1.0
 	for point: Vector3 in GameState.patrol_zone(zone):
 		var d := point.distance_to(player.global_position)
-		if d > best_distance:
+		if d > fallback_distance:
+			fallback_distance = d
+			fallback = point
+		var route := NavigationServer3D.map_get_path(map, global_position, point, true)
+		var passes_player := false
+		for i in route.size():
+			var a2 := route[maxi(i - 1, 0)]
+			var closest := Geometry3D.get_closest_point_to_segment(player.global_position, a2, route[i])
+			if closest.distance_to(player.global_position) < 2.2:
+				passes_player = true
+				break
+		if not passes_player and d > best_distance:
 			best_distance = d
 			best = point
+	if best_distance < 0.0:
+		best = fallback
 	_go_to(best)
 
 
@@ -330,7 +442,7 @@ func _tick_patrol(delta: float) -> float:
 		_waiting = true
 		_wait = randf_range(1.5, 3.5)
 	_wait -= delta
-	rotation.y += 0.6 * delta
+	_look_around(delta, 0.5)
 	if _wait <= 0.0:
 		_waiting = false
 		_next_patrol_point()
@@ -344,13 +456,17 @@ func _tick_investigate(delta: float) -> float:
 		_waiting = true
 		_wait = 2.5
 	_wait -= delta
-	rotation.y += 1.1 * delta
+	_look_around(delta, 0.8)
 	if _wait <= 0.0:
 		_enter_patrol()
 	return 0.0
 
 
 func _tick_chase(delta: float, player: Player) -> float:
+	if _notice_left > 0.0:
+		_notice_left -= delta
+		_face(player.global_position - global_position, delta, 7.0)
+		return 0.0
 	if player.hidden:
 		if _known_spot != null:
 			# It saw you climb in. It comes straight for the door.
@@ -360,7 +476,7 @@ func _tick_chase(delta: float, player: Player) -> float:
 				_face(_known_spot.global_position - global_position, delta)
 				_wait += delta
 				if _wait >= 0.8:
-					GameState.end_game(false)
+					_catch(player)
 				return 0.0
 			return chase_speed
 		_lost_time += delta
@@ -372,7 +488,7 @@ func _tick_chase(delta: float, player: Player) -> float:
 			_lost_time = 0.0
 			var in_reach := _flat_distance(player.global_position) <= catch_distance
 			if in_reach and not GameState.is_lit(player.global_position) and not GameState.repels(player.global_position):
-				GameState.end_game(false)
+				_catch(player)
 				return 0.0
 		else:
 			_lost_time += delta
@@ -398,7 +514,7 @@ func _tick_search(delta: float) -> float:
 		# Stand in front of the hiding spot and stare at it.
 		_face(_search_spot.global_position - global_position, delta)
 	else:
-		rotation.y += 1.3 * delta
+		_look_around(delta, 0.9)
 	if _wait <= 0.0:
 		_waiting = false
 		_pick_search_point()
@@ -407,10 +523,16 @@ func _tick_search(delta: float) -> float:
 
 func _tick_retreat(delta: float) -> float:
 	if _state_time >= retreat_time:
+		# Recovering: a weak, rasping voice before it comes looking again.
+		_play_fx(_fx_b, SoundBank.pick("spirit", "weak"), -2.0, 0.9)
 		_enter_search(last_known)
 		return investigate_speed
 	if _arrived():
-		rotation.y += 2.0 * delta
+		# Cowering where it fled to, turned away from the light.
+		var away := global_position - last_known
+		away.y = 0.0
+		if away.length() > 0.1:
+			_face(away, delta, 2.5)
 		return 0.0
 	return retreat_speed
 
@@ -442,6 +564,37 @@ func _tick_block(delta: float, player: Player) -> float:
 	return 0.0
 
 
+## It has you. The game holds for a beat: Jason's view swings up to its face while it
+## rears up with its arms raised and its jaw wide, shrieks, and then the run ends.
+func _catch(player: Player) -> void:
+	if _catching or GameState.ended:
+		return
+	_catching = true
+	GameState.cutscene = true  # freezes Jason and the other spirits
+	velocity = Vector3.ZERO
+	voice.stream = SoundBank.pick("spirit", "shriek")
+	voice.pitch_scale = 0.85
+	voice.volume_db = 8.0
+	voice.play()
+	_play_fx(_fx_a, _snd_thump, 4.0)
+	if not player.hidden:
+		var face := global_position + Vector3(0, 1.85, 0)
+		var eye := player.camera.global_position
+		var d := face - eye
+		var tween := create_tween().set_parallel(true)
+		tween.tween_property(player, "rotation:y", player.rotation.y + angle_difference(player.rotation.y, atan2(-d.x, -d.z)), 0.35).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(player.head, "rotation:x", clampf(atan2(d.y, Vector2(d.x, d.z).length()), -1.2, 1.2), 0.35).set_trans(Tween.TRANS_SINE)
+	get_tree().create_timer(1.3).timeout.connect(func() -> void: GameState.end_game(false))
+
+
+func _tick_catch(delta: float) -> void:
+	velocity = Vector3.ZERO
+	var player := GameState.player
+	if player != null:
+		_face(player.global_position - global_position, delta, 8.0)
+	_update_presentation(delta)
+
+
 func _next_patrol_point() -> void:
 	var points := GameState.patrol_zone(zone)
 	if points.is_empty():
@@ -450,7 +603,7 @@ func _next_patrol_point() -> void:
 	# Points inside a lit area can't be reached (it won't step into light): skip them.
 	var open: Array[int] = []
 	for i in points.size():
-		if not GameState.is_lit(points[i]) and i != _patrol_index:
+		if not GameState.is_lit(points[i]) and not GameState.repels(points[i]) and i != _patrol_index:
 			open.append(i)
 	var index: int
 	if open.is_empty():
@@ -504,6 +657,7 @@ func _move(delta: float, speed: float) -> void:
 	var motion := Vector3.ZERO
 	var blocked := false
 	var blocked_by_light := false
+	var blocked_by_daniel := false
 	if speed > 0.0 and _has_target and not nav.is_navigation_finished():
 		var direction := nav.get_next_path_position() - global_position
 		direction.y = 0.0
@@ -516,22 +670,29 @@ func _move(delta: float, speed: float) -> void:
 			if into_light or into_daniel:
 				blocked = true
 				blocked_by_light = into_light
-				if into_daniel:
-					# It turns its back on Daniel and shrinks away from him.
+				if into_daniel and not into_light:
+					# It stops and turns its back on Daniel. (It does not back away: stepping
+					# out of his radius and straight back in made it shudder on the edge.)
 					var away := global_position - GameState.daniel_position
 					away.y = 0.0
 					if away.length() > 0.01:
 						direction = away.normalized()
-						motion = direction * 0.6
+					blocked_by_daniel = true
 			else:
 				motion = direction * speed
-			_face(direction, delta)
+			_face(direction, delta, 2.5 if blocked_by_daniel else (4.0 if state == State.RETREAT else (8.0 if state == State.CHASE else 5.0)))
 	_blocked_by_light = blocked and blocked_by_light
+	_blocked_by_daniel = blocked and blocked_by_daniel
+	if _blocked_by_light and _blocked_time > 0.35 and not _edge_hissed and state != State.RETREAT:
+		_edge_hissed = true
+		_play_fx(_fx_a, _snd_hiss, -10.0, 0.6)  # drawing back from the light: a low, held-in hiss
+	elif not _blocked_by_light:
+		_edge_hissed = false
 	_blocked_time = _blocked_time + delta if blocked else 0.0
 	# Gravity, so spirits can use the service stairs.
 	var fall := 0.0 if is_on_floor() else velocity.y - 9.8 * delta
 	velocity = Vector3(motion.x + _knock.x, fall, motion.z + _knock.z)
-	_knock = _knock.lerp(Vector3.ZERO, 1.0 - exp(-6.0 * delta))
+	_knock = _knock.lerp(Vector3.ZERO, 1.0 - exp(-4.0 * delta))
 	move_and_slide()
 
 	# It is solid, so a closed door stops it. It shoves unlocked ones open.
@@ -540,19 +701,70 @@ func _move(delta: float, speed: float) -> void:
 		if door != null and not door.locked and not door.is_open:
 			door.set_open(true, false)
 
-	# Heavy footfalls you can hear coming.
-	_stride += get_real_velocity().length() * delta
-	if _stride >= 0.95:
-		_stride = 0.0
-		steps.pitch_scale = randf_range(0.5, 0.62)
-		steps.play()
+
+## A foot came down in the walk animation: the heavy footfall you hear coming.
+func _on_foot_planted(strength: float) -> void:
+	var step_sound := SoundBank.pick("steps", GameState.surface_at(global_position))
+	if step_sound != null:
+		steps.stream = step_sound
+	steps.volume_db = lerpf(-6.0, 4.0, strength)
+	steps.pitch_scale = randf_range(0.55, 0.7) * (0.75 if _lit_by_bright else 1.0)  # dragging in the beam
+	steps.play()
 
 
-func _face(direction: Vector3, delta: float) -> void:
+## Points the head at what it is paying attention to: the player in a chase (and at the
+## notice beat), where it heard something, the hiding place it is checking, or, on patrol,
+## the player if they are close and in front of it, otherwise the way ahead.
+func _track_with_head() -> void:
+	var player := GameState.player
+	var target := Vector3.INF
+	var weight := 0.0
+	match state:
+		State.CHASE, State.BLOCK:
+			if player != null:
+				target = player.camera.global_position
+				weight = 1.0
+		State.INVESTIGATE:
+			target = last_known + Vector3(0, 1.5, 0)
+			weight = 0.7
+		State.SEARCH:
+			target = (_search_spot.global_position + Vector3(0, 1.0, 0)) if _search_spot != null else last_known + Vector3(0, 1.5, 0)
+			weight = 0.5
+		State.PATROL:
+			if player != null and _flat_distance(player.global_position) < 7.0 and _sees_player:
+				target = player.camera.global_position
+				weight = 0.6
+			elif _has_target and not nav.is_navigation_finished():
+				target = nav.get_next_path_position() + Vector3(0, 1.6, 0)
+				weight = 0.25
+	if _catching and player != null:
+		target = player.camera.global_position
+		weight = 1.0
+	if target == Vector3.INF:
+		body.look_yaw = 0.0
+		body.look_pitch = 0.0
+		body.look_weight = 0.0
+		return
+	var to := target - global_position
+	var flat := Vector2(to.x, to.z).length()
+	body.look_yaw = angle_difference(rotation.y, atan2(-to.x, -to.z)) if flat > 0.2 else 0.0
+	body.look_pitch = atan2(target.y - (global_position.y + 1.8), maxf(flat, 0.5))
+	body.look_weight = weight
+
+
+## Turns slowly left and right (never a full circle) while it waits.
+func _look_around(delta: float, amount: float) -> void:
+	rotation.y += cos(_state_time * 0.8) * amount * delta
+
+
+func _face(direction: Vector3, delta: float, rate := 8.0) -> void:
 	if Vector2(direction.x, direction.z).length() < 0.01:
 		return
 	var yaw := atan2(-direction.x, -direction.z)
-	rotation.y = lerp_angle(rotation.y, yaw, minf(1.0, 8.0 * delta))
+	# Eases toward the heading, but never faster than a steady turn: no sudden spins or snaps.
+	var diff := angle_difference(rotation.y, yaw)
+	var cap := rate * 0.55 * delta
+	rotation.y += clampf(diff * minf(1.0, rate * delta), -cap, cap)
 
 
 func _flat_distance(pos: Vector3) -> float:
@@ -573,11 +785,45 @@ func _update_presentation(delta: float) -> void:
 	if GameState.daniel_position != Vector3.INF and state != State.CHASE:
 		shy_amount = clampf(1.0 - _flat_distance(GameState.daniel_position) / (GameState.DANIEL_REPEL_RADIUS + 1.5), 0.0, 1.0)
 	body.shy = shy_amount
+	body.notice = _notice_left > 0.0
+	body.catching = _catching
+	_track_with_head()
 	body.animate(delta, get_real_velocity().length(), state == State.CHASE, weak)
 	var chasing := state == State.CHASE
 	var blend := minf(1.0, 3.0 * delta)
-	drone.pitch_scale = lerpf(drone.pitch_scale, 1.35 if chasing else 1.0, blend)
+	var burn := clampf(weaken_progress / weaken_time, 0.0, 1.0) if _lit_by_bright else 0.0
+	var pitch := 1.35 if chasing else 1.0
+	if _lit_by_bright:
+		pitch = 1.0 + 0.6 * burn + sin(_state_time * 18.0) * 0.08  # the drone climbs and wobbles
+	drone.pitch_scale = lerpf(drone.pitch_scale, pitch, minf(1.0, 8.0 * delta))
 	var loud := 4.0 if chasing else -2.0
 	if GameState.near_daniel(global_position, 5.0):
 		loud -= 14.0  # they go quiet near Daniel (they sense the minion)
-	drone.volume_db = lerpf(drone.volume_db, loud, blend)
+	_drone_gap = maxf(0.0, _drone_gap - delta)
+	_drone_quiet = maxf(0.0, _drone_quiet - delta)
+	if _drone_quiet > 0.0:
+		loud -= 8.0
+	if _drone_gap > 0.0:
+		drone.volume_db = -60.0
+	else:
+		drone.volume_db = lerpf(drone.volume_db, loud, blend)
+	# Breathing: idle while it patrols, heavy when it hunts, held in near Daniel and while burning.
+	var idle_db := -20.0
+	var hunt_db := -9.0 if chasing else -60.0
+	if _lit_by_bright or state == State.RETREAT:
+		idle_db = -34.0
+		hunt_db = -60.0
+	if shy_amount > 0.45:
+		idle_db -= 12.0
+	if chasing:
+		idle_db = -60.0
+	_breath_idle.volume_db = lerpf(_breath_idle.volume_db, idle_db, blend)
+	_breath_hunt.volume_db = lerpf(_breath_hunt.volume_db, hunt_db, blend)
+	# Burning static grows while the beam holds on it.
+	var burn_db := lerpf(-34.0, -3.0, burn) if _lit_by_bright else -60.0
+	_burn_loop.volume_db = lerpf(_burn_loop.volume_db, burn_db, minf(1.0, 12.0 * delta))
+	# Near Daniel it hushes: a breath of whisper now and then.
+	_whisper_cooldown -= delta
+	if shy_amount > 0.45 and _whisper_cooldown <= 0.0 and not _fx_b.playing:
+		_whisper_cooldown = randf_range(5.0, 9.0)
+		_play_fx(_fx_b, _snd_whisper, -10.0, randf_range(0.85, 1.0))

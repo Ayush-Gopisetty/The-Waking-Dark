@@ -63,12 +63,33 @@ var _hip_sway := 0.0
 var _foot_rest_y := 0.0
 
 var _phase := 0.0
+var _speed_eased := 0.0
 var _time := 0.0
 var _chase_blend := 0.0
 var _burn_blend := 0.0
 var _twitch := Vector2.ZERO
 var _twitch_target := Vector2.ZERO
 var _twitch_timer := 0.0
+
+## A foot has just come down (the animation's own timing), so footsteps stay in step
+## with the legs. `strength` is 0..1 (how hard it is walking).
+signal foot_planted(strength: float)
+
+## Where the head looks, relative to the body's facing: yaw to the left in radians, pitch up
+## in radians, and how firmly it tracks (0 = the idle drift, 1 = locked on).
+var look_yaw := 0.0
+var look_pitch := 0.0
+var look_weight := 0.0
+## The beat when it first notices you: it freezes, snaps its head round and opens its jaw.
+var notice := false
+## The moment it catches you: arms rise, head tips back, jaw wide.
+var catching := false
+var _look_yaw_b := 0.0
+var _look_pitch_b := 0.0
+var _look_w_b := 0.0
+var _notice_b := 0.0
+var _catch_b := 0.0
+var _plant_index := -999999
 
 ## Set by the spirit AI each frame (all eased in here).
 ## Turning its face from a light it will not enter: 0..1, and which side it turns to.
@@ -82,6 +103,7 @@ var _avert_b := 0.0
 var _shy_b := 0.0
 var _stumble_b := 0.0
 var _push := 0.0
+var _push_rising := false
 var _burst: CPUParticles3D
 
 ## Bones the animation drives, parents before children.
@@ -102,7 +124,7 @@ func _ready() -> void:
 
 ## The beam shoves it back: it rocks away from the light and tears apart into smoke.
 func push_back() -> void:
-	_push = 1.0
+	_push_rising = true
 	if _burst != null:
 		_burst.restart()
 		_burst.emitting = true
@@ -114,8 +136,25 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	if _skel == null:
 		return
 	_time += delta
-	_phase += ground_speed * delta * 3.0
-	var stride := clampf(ground_speed / 1.5, 0.0, 1.0)
+	# The speed the legs follow is eased, so starting and stopping don't snap the legs from
+	# rest to mid-stride in a single frame.
+	_speed_eased = lerpf(_speed_eased, ground_speed, minf(1.0, 6.0 * delta))
+	_phase += _speed_eased * delta * 3.0
+	var stride := clampf(_speed_eased / 1.5, 0.0, 1.0)
+	# A foot lands when a leg reaches the far end of its swing (every half cycle).
+	var plant := int(floor((_phase - PI * 0.5) / PI))
+	if _plant_index == -999999:
+		_plant_index = plant
+	elif plant != _plant_index:
+		_plant_index = plant
+		if stride > 0.12:
+			foot_planted.emit(stride)
+	var look_rate := 14.0 if notice else 4.0
+	_look_yaw_b = lerpf(_look_yaw_b, clampf(look_yaw, -1.1, 1.1), minf(1.0, look_rate * delta))
+	_look_pitch_b = lerpf(_look_pitch_b, clampf(look_pitch, -0.5, 0.5), minf(1.0, look_rate * delta))
+	_look_w_b = lerpf(_look_w_b, look_weight, minf(1.0, 6.0 * delta))
+	_notice_b = lerpf(_notice_b, 1.0 if notice else 0.0, minf(1.0, 12.0 * delta))
+	_catch_b = lerpf(_catch_b, 1.0 if catching else 0.0, minf(1.0, 7.0 * delta))
 	_chase_blend = lerpf(_chase_blend, 1.0 if chasing else 0.0, minf(1.0, 4.0 * delta))
 	_burn_blend = lerpf(_burn_blend, burn, minf(1.0, 8.0 * delta))
 	var chase := _chase_blend * (1.0 - _burn_blend)
@@ -124,12 +163,15 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	_avert_b = lerpf(_avert_b, avert, minf(1.0, 5.0 * delta))
 	_shy_b = lerpf(_shy_b, shy, minf(1.0, 3.0 * delta))
 	_stumble_b = lerpf(_stumble_b, 1.0 if stumbling else 0.0, minf(1.0, 6.0 * delta))
-	_push = maxf(0.0, _push - delta * 2.6)
+	if _push_rising:
+		_push = minf(1.0, _push + delta * 9.0)  # throws back over a tenth of a second, not in one frame
+		if _push >= 1.0:
+			_push_rising = false
+	else:
+		_push = maxf(0.0, _push - delta * 2.6)
 	var push := pow(_push, 1.5)
-	# Fleeing: now and then a foot catches and the leg buckles. It never pitches or lunges
-	# forward; the body just sags and the head drops.
-	var trip := pow(maxf(0.0, sin(_time * 4.7)), 6.0) * _stumble_b
-	var crouch := maxf(_shy_b, _avert_b * 0.4)
+	# No knee-bending crouches and no leaning: the legs stay straight (only the walk swings
+	# them) and the spine stays upright in every reaction.
 
 	# Legs: a lurching, uneven gait. The right leg drags a little.
 	for i in 2:
@@ -137,20 +179,20 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		var s: String = "Left" if i == 0 else "Right"
 		var swing := sin(_phase + (0.0 if i == 0 else PI))
 		var reach := 0.55 if i == 0 else 0.42
-		var thigh := 0.14 + swing * reach * stride + burning * 0.3 + crouch * 0.5
-		var knee := -(0.3 + maxf(0.0, -swing) * 0.85 * stride + burning * 0.5 + crouch * 0.8 + trip * 0.35)
+		var thigh := 0.04 + swing * reach * stride
+		var knee := -(0.06 + maxf(0.0, -swing) * 0.85 * stride)
 		_rot[s + "UpperLeg"] = Vector3(thigh, 0, side * 0.03)
 		_rot[s + "LowerLeg"] = Vector3(knee, 0, 0)
 		_rot[s + "Foot"] = Vector3(-(thigh + knee), 0, 0)
 
-	# Torso: hunched and sunken. Leans in to chase, recoils from the light.
+	# Torso: held upright, with no forward lean and no side-to-side pelvis sway; the
+	# lurch is only a small vertical dip with each step.
 	# The pivot torso bends at one joint; the bones share it out up the spine.
-	var breath := sin(_time * 1.1) * 0.025
 	var lurch := absf(sin(_phase)) * stride
-	_hip_drop = lurch * 0.04 + crouch * 0.13 + trip * 0.05
-	_hip_sway = sin(_phase) * 0.07 * stride
+	_hip_drop = lurch * 0.04
+	_hip_sway = 0.0
 	_rot["Hips"] = Vector3(0, 0, _hip_sway)
-	var spine := Vector3(-0.38 - chase * 0.32 + burning * 0.25 + breath + _avert_b * 0.2 + _shy_b * 0.4 + push * 0.45, sin(_phase) * 0.1 * stride + _avert_b * avert_side * 0.55, -sin(_phase) * 0.08 * stride + 0.05)
+	var spine := Vector3(0.0, _avert_b * avert_side * 0.55, 0.05)
 	_rot["Spine"] = spine * 0.35
 	_rot["Chest"] = spine * 0.35
 	_rot["UpperChest"] = spine * 0.3
@@ -162,10 +204,12 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		var s: String = "Left" if i == 0 else "Right"
 		var swing := -sin(_phase + (0.0 if i == 0 else PI)) * 0.3 * stride
 		var hang := 0.3 + swing + sin(_time * 0.9 + i) * 0.03
-		var reach := 1.6 + sin(_time * 7.0 + i * 2.0) * 0.12
+		# Chasing, the arms hang low and loose, swinging a little. They no longer shoot out
+		# in front of it (which read as a thrusting lunge).
+		var reach := 0.7 + sin(_time * 1.8 + i * 2.0) * 0.06
 		var shield := 1.5 + sin(_time * 31.0 + i) * 0.06
 		var upper := Vector3(lerpf(lerpf(hang, reach, chase), shield, burning), 0, side * lerpf(lerpf(0.12, 0.16, chase), -0.75, burning))
-		var lower := Vector3(lerpf(lerpf(0.12, 0.2, chase), 2.1, burning), 0, 0)
+		var lower := Vector3(lerpf(lerpf(0.12, 0.55, chase), 2.1, burning), 0, 0)
 		# Turning from a light: the arm on the far side comes up across its face.
 		if (avert_side > 0.0) == (s == "Right"):
 			upper = upper.lerp(Vector3(1.5, 0, side * -0.75), _avert_b * 0.85)
@@ -175,22 +219,29 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		# Cowering near Daniel: both arms fold in over its chest.
 		upper = upper.lerp(Vector3(0.7, 0, side * -0.4), _shy_b)
 		lower = lower.lerp(Vector3(1.9, 0, 0), _shy_b)
+		# Noticing you: the arms lift a little and open (no lean, no lunge).
+		upper = upper.lerp(Vector3(0.5, 0, side * 0.5), _notice_b * 0.8)
+		lower = lower.lerp(Vector3(0.9, 0, 0), _notice_b * 0.8)
+		# Catching you: both arms rise high and open like claws over its head.
+		upper = upper.lerp(Vector3(2.6, 0, side * 0.5), _catch_b)
+		lower = lower.lerp(Vector3(0.5, 0, 0), _catch_b)
 		# Shoved back by the beam: the arms fling out to the sides.
 		upper += Vector3(0.0, 0, side * 0.6 * push)
 		_rot[s + "UpperArm"] = upper
 		_rot[s + "LowerArm"] = lower
-		_rot[s + "Hand"] = Vector3(lerpf(0.05, 0.35, chase) + sin(_time * 11.0 + i) * 0.06 * chase, 0, 0)
+		_rot[s + "Hand"] = Vector3(lerpf(0.05, 0.3, chase), 0, 0)
 
 	# Head: lolls to one side with sudden snaps. In a chase it locks forward.
 	_twitch_timer -= delta
 	if _twitch_timer <= 0.0:
 		_twitch_timer = randf_range(0.7, 3.0)
 		_twitch_target = Vector2(randf_range(-0.2, 0.2), randf_range(-0.35, 0.35))
-	_twitch = _twitch.lerp(_twitch_target, minf(1.0, 18.0 * delta))
-	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2 + _shy_b * 0.25, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm * (1.0 - _avert_b) - _avert_b * avert_side * 0.7, 0)
-	_rot["Head"] = Vector3(0.45 + chase * 0.35 - burning * 0.35 + _twitch.x * calm + _shy_b * 0.4 - push * 0.4, 0, lerpf(0.45, 0.12, chase) + _twitch.y * 0.3 * calm)
+	_twitch = _twitch.lerp(_twitch_target, minf(1.0, 5.0 * delta))  # (slow enough to read as a slump, not a snap)
+	var idle_drift := 1.0 - _look_w_b
+	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2 + _shy_b * 0.25, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm * (1.0 - _avert_b) * idle_drift - _avert_b * avert_side * 0.7 + _look_yaw_b * 0.5, 0)
+	_rot["Head"] = Vector3(0.22 + chase * 0.15 - burning * 0.35 + _twitch.x * calm * idle_drift + _shy_b * 0.2 - _look_pitch_b * 0.6 - _notice_b * 0.3 - _catch_b * 0.8, _look_yaw_b * 0.5, lerpf(0.45, 0.12, chase) * (1.0 - 0.6 * _look_w_b) + _twitch.y * 0.3 * calm * idle_drift)
 	# The jaw hangs slack; it gapes in a chase and screams when burned.
-	_rot["Jaw"] = Vector3(-(0.04 + chase * 0.16 + burning * 0.26 + absf(sin(_time * 1.9)) * 0.02), 0, 0)
+	_rot["Jaw"] = Vector3(-(0.04 + chase * 0.16 + burning * 0.26 + absf(sin(_time * 1.9)) * 0.02 + _notice_b * 0.3 + _catch_b * 0.6 + absf(sin(_time * 22.0)) * 0.08 * _catch_b), 0, 0)
 
 	_apply()
 

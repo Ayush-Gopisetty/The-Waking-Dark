@@ -18,3 +18,19 @@ dirty_carpet.
 - `assets/props/flashlight`, `assets/props/battery`, `assets/props/key`: modelled in Blender.
 - `assets/models/jason.glb`, `daniel.glb`, `assets/monster/spirit.glb`: built in Blender
   with MPFB (MakeHuman, CC0 assets).
+
+## Audio (assets/audio)
+
+Footsteps (wood, stairs, carpet, concrete, metal), creaking doors and the
+wind loop are cut from **Free Horror SFX Vol. 1 and Vol. 2** by Liminal Games,
+https://liminal-space-dev.itch.io/free-horror-sfx-sounds, licensed CC0 1.0
+(no attribution required). Footsteps were split into single steps, doors trimmed
+and normalised, and the wind joined into a seamless loop. The heartbeat, breathing, spirit
+drone, music and the remaining effects are still synthesised in `scripts/audio_gen.gd`.
+
+The spirit's voice (shriek, snarl, pained cry, weak rasp, breathing in `assets/audio/spirit/`)
+is adapted from **Zombies & Ghouls - Audio Pack** by VoiceBosch,
+https://voicebosch.itch.io/zombies-and-ghouls-audio-pack, licensed
+**CC BY-SA 4.0** (attribution required: "VoiceBosch"; adapted files are shared alike;
+see `assets/audio/spirit/LICENSE.txt`). Show this credit in the game's end credits.
+
