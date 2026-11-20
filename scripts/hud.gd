@@ -38,10 +38,16 @@ func _ready() -> void:
 	GameState.flashback_requested.connect(_play_flashback)
 	GameState.inventory_changed.connect(_update_items)
 	GameState.checkpoint_saved.connect(func() -> void: _saved_time = 2.5)
+	Settings.changed.connect(_apply_settings)
+	_apply_settings()
 	if GameState.restoring:
 		_retry_fade_in()
 	else:
 		_wake_up()
+
+
+func _apply_settings() -> void:
+	_subtitles.visible = Settings.subtitles
 
 
 func _process(delta: float) -> void:

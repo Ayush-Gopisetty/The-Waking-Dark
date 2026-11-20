@@ -75,6 +75,8 @@ func _ready() -> void:
 	GameState.player = self
 	GameState.restore_player(self)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	camera.fov = Settings.fov
+	Settings.changed.connect(_apply_settings)
 	footsteps.stream = AudioGen.footstep()
 	body = CharacterRig.new()
 	body.name = "Body"
@@ -181,9 +183,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if captured and not GameState.cutscene:
 			_look(motion.relative)
 		return
-	if event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if captured else Input.MOUSE_MODE_CAPTURED
-	elif event is InputEventMouseButton and event.is_pressed() and not captured:
+	if event is InputEventMouseButton and event.is_pressed() and not captured:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event.is_action_pressed("interact"):
 		_interact()
@@ -192,9 +192,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			crouching = not crouching
 
 
+func _apply_settings() -> void:
+	camera.fov = Settings.fov
+
+
 func _look(relative: Vector2) -> void:
-	rotation.y -= relative.x * mouse_sensitivity
-	head.rotation.x = clampf(head.rotation.x - relative.y * mouse_sensitivity, -1.45, 1.45)
+	var sensitivity := mouse_sensitivity * Settings.mouse_sensitivity
+	rotation.y -= relative.x * sensitivity
+	var pitch_input := relative.y * (-1.0 if Settings.invert_y else 1.0)
+	head.rotation.x = clampf(head.rotation.x - pitch_input * sensitivity, -1.45, 1.45)
 	if hidden:
 		# Peeking: only a narrow arc while inside a hiding spot.
 		rotation.y = _hide_yaw + clampf(angle_difference(_hide_yaw, rotation.y), -0.6, 0.6)

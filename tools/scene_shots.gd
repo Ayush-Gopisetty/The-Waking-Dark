@@ -2,6 +2,8 @@ extends Node
 ## Renders a few views of the real level (needs a window):
 ##   godot --path . res://tools/scene_shots.tscn -- <output_dir>
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	var out: String = OS.get_cmdline_user_args()[0]
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	add_child(main)

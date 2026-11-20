@@ -25,6 +25,8 @@ const LAYER_INTERACT := 8
 const LAYER_SPIRIT := 16
 
 const END_SCREEN_PATH := "res://scenes/ui/end_screen.tscn"
+const MAIN_SCENE_PATH := "res://scenes/main.tscn"
+const TITLE_SCENE_PATH := "res://scenes/ui/title_screen.tscn"
 const FRAGMENTS_PATH := "res://data/memory_fragments.json"
 const LOG_PATH := "user://playtest_log.csv"
 
@@ -59,7 +61,7 @@ var elapsed := 0.0
 ## Where Daniel stands; Vector3.INF when he's not in the scene.
 var daniel_position := Vector3.INF
 
-# Checkpoints (in memory for now; the plan's JSON saves come later).
+# Checkpoints: kept here during a run and written to disk (SaveGame) every time one is made.
 ## Names of level nodes changed this run, so a retry can replay them.
 var taken_pickups: Array[String] = []
 var unlocked_doors: Array[String] = []
@@ -92,11 +94,7 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_fullscreen"):
-		var win := get_window()
-		if win.mode == Window.MODE_FULLSCREEN:
-			win.mode = Window.MODE_WINDOWED
-		else:
-			win.mode = Window.MODE_FULLSCREEN
+		Settings.set_value("fullscreen", not Settings.fullscreen)
 
 
 ## Called by the level before it builds anything. Clears the previous run.
@@ -115,6 +113,44 @@ func begin_level() -> void:
 	taken_pickups.clear()
 	unlocked_doors.clear()
 	get_tree().paused = false
+
+
+## Title screen: begin Act 1 from the start (the saved game stays until a new checkpoint replaces it).
+func prepare_new_game() -> void:
+	checkpoint.clear()
+	restoring = false
+	deaths_since_checkpoint = 0
+
+
+## Title screen: load the saved game into the checkpoint, ready for the main scene.
+## Returns false when there is no usable save.
+func load_save() -> bool:
+	var saved := SaveGame.read()
+	if saved.is_empty():
+		return false
+	checkpoint = saved
+	restoring = true
+	deaths_since_checkpoint = 0
+	return true
+
+
+## Pause menu: reload the act from the last checkpoint (no mercy battery, it is not a death).
+func load_checkpoint() -> void:
+	restoring = not checkpoint.is_empty()
+	deaths_since_checkpoint = 0
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+## Back to the title screen. Progress since the last checkpoint is dropped.
+func quit_to_title() -> void:
+	checkpoint.clear()
+	restoring = false
+	deaths_since_checkpoint = 0
+	cutscene = false
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file(TITLE_SCENE_PATH)
 
 
 ## Full restart from the beginning of Act 1.
@@ -152,6 +188,9 @@ func save_checkpoint() -> void:
 		"elapsed": elapsed,
 	}
 	deaths_since_checkpoint = 0
+	var level := get_tree().current_scene.get_node_or_null("Level") if get_tree().current_scene != null else null
+	var room: String = level.room_at(player.global_position) if level != null and level.has_method("room_at") else ""
+	SaveGame.write(checkpoint, room)
 	checkpoint_saved.emit()
 
 

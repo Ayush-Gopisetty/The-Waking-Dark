@@ -105,6 +105,24 @@ var _stumble_b := 0.0
 var _push := 0.0
 var _push_rising := false
 var _burst: CPUParticles3D
+## The last pose sent to each bone; limbs ease toward their new pose so they carry
+## weight (follow-through) instead of snapping.
+var _eased: Dictionary[String, Vector3] = {}
+var _flinch := 0.0
+## The arm strike: seconds into the swing, or -1 when it is not striking.
+var _strike_t := -1.0
+const STRIKE_TIME := 0.95
+## Leg length from hip to sole (metres), used to match the stride to the ground speed.
+const LEG_LENGTH := 0.88
+var _flinch_ready := true
+
+## How quickly each bone follows its target pose (per second). Legs are not listed:
+## they follow the gait exactly, so the feet stay planted in step with the footsteps.
+const FOLLOW := {
+	"Spine": 5.0, "Chest": 5.0, "UpperChest": 4.5, "Neck": 7.0, "Head": 9.0, "Jaw": 16.0,
+	"LeftUpperArm": 8.0, "RightUpperArm": 8.0, "LeftLowerArm": 6.5, "RightLowerArm": 6.5,
+	"LeftHand": 5.0, "RightHand": 5.0,
+}
 
 ## Bones the animation drives, parents before children.
 const DRIVEN: Array[String] = [
@@ -130,19 +148,51 @@ func push_back() -> void:
 		_burst.emitting = true
 
 
+## Smooth pseudo-random wander in -1..1 (several slow waves that never line up), so
+## idle motion drifts instead of repeating like a sine.
+func _n(t: float, seed: float) -> float:
+	return sin(t + seed) * 0.5 + sin(t * 2.3 + seed * 1.7) * 0.3 + sin(t * 4.1 + seed * 2.9) * 0.2
+
+
+## A walking phase with the step's rhythm: the foot lingers on the ground and the leg
+## swings through quickly, instead of an even sine.
+func _warp(p: float) -> float:
+	return p + 0.35 * sin(p)
+
+
+## Swings the right arm at whatever is in front of it: a wind-up, then a fast extension
+## (the body stays upright; only the shoulder and a small twist drive it).
+func strike() -> void:
+	if _strike_t < 0.0:
+		_strike_t = 0.0
+
+
+func is_striking() -> bool:
+	return _strike_t >= 0.0
+
+
 ## Called every physics frame by the spirit AI.
 ## ground_speed in m/s; burn is 0..1 (how badly the light is hurting it).
-func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> void:
+func animate(delta: float, ground_speed: float, chasing: bool, burn: float, turn_rate: float = 0.0) -> void:
 	if _skel == null:
 		return
 	_time += delta
 	# The speed the legs follow is eased, so starting and stopping don't snap the legs from
 	# rest to mid-stride in a single frame.
-	_speed_eased = lerpf(_speed_eased, ground_speed, minf(1.0, 6.0 * delta))
-	_phase += _speed_eased * delta * 3.0
+	# Turning on the spot makes it step round (small shuffling steps), so the feet never
+	# skate across the floor while the body pivots.
+	var stepping := maxf(ground_speed, minf(absf(turn_rate) * 0.3, 0.9))
+	_speed_eased = lerpf(_speed_eased, stepping, minf(1.0, 6.0 * delta))
+	# Step length grows with speed (a slow shuffle takes short steps), and the cycle runs at
+	# the rate that keeps each planted foot still on the ground: no skating. The cadence
+	# wanders a little, so the steps are never perfectly even.
+	var step_len := clampf(0.35 + 0.28 * _speed_eased, 0.4, 0.95)
+	_phase += TAU * _speed_eased / (2.0 * step_len) * delta * (1.0 + 0.08 * _n(_time * 0.8, 3.0))
+	var warped := _phase
+	var gait_w := smoothstep(0.05, 0.4, _speed_eased)
 	var stride := clampf(_speed_eased / 1.5, 0.0, 1.0)
 	# A foot lands when a leg reaches the far end of its swing (every half cycle).
-	var plant := int(floor((_phase - PI * 0.5) / PI))
+	var plant := int(floor(_phase / PI))  # heel strike: the start of each leg's stance
 	if _plant_index == -999999:
 		_plant_index = plant
 	elif plant != _plant_index:
@@ -156,7 +206,16 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	_notice_b = lerpf(_notice_b, 1.0 if notice else 0.0, minf(1.0, 12.0 * delta))
 	_catch_b = lerpf(_catch_b, 1.0 if catching else 0.0, minf(1.0, 7.0 * delta))
 	_chase_blend = lerpf(_chase_blend, 1.0 if chasing else 0.0, minf(1.0, 4.0 * delta))
-	_burn_blend = lerpf(_burn_blend, burn, minf(1.0, 8.0 * delta))
+	# The light hurts at once, but the pain fades slowly: it recovers hesitantly.
+	_burn_blend = lerpf(_burn_blend, burn, minf(1.0, (10.0 if burn > _burn_blend else 2.2) * delta))
+	# The first touch of the beam is a sharp flinch that settles into the cowering posture.
+	if burn > 0.2 and _flinch_ready:
+		_flinch = 1.0
+		_flinch_ready = false
+	elif burn < 0.05:
+		_flinch_ready = true
+	_flinch = maxf(0.0, _flinch - delta * 2.4)
+	var flinch := _flinch * _flinch
 	var chase := _chase_blend * (1.0 - _burn_blend)
 	var burning := _burn_blend
 	var calm := 1.0 - chase
@@ -173,41 +232,66 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 	# No knee-bending crouches and no leaning: the legs stay straight (only the walk swings
 	# them) and the spine stays upright in every reaction.
 
-	# Legs: a lurching, uneven gait. The right leg drags a little.
+	# Legs: a real step cycle. Each leg spends 60% of it on the ground, swinging back under
+	# the body at the speed the ground moves (the foot does not slide), then lifts: the knee
+	# folds, the thigh carries it forward, and the leg straightens for the next heel strike.
+	# Standing, the legs are straight; the knee only bends to lift a foot.
+	var amp := asin(minf(0.95, 0.6 * step_len / LEG_LENGTH))
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0  # left (-X in pivot space) first
 		var s: String = "Left" if i == 0 else "Right"
-		var swing := sin(_phase + (0.0 if i == 0 else PI))
-		var reach := 0.55 if i == 0 else 0.42
-		var thigh := 0.04 + swing * reach * stride
-		var knee := -(0.06 + maxf(0.0, -swing) * 0.85 * stride)
+		var u := fposmod(_phase / TAU + (0.0 if i == 0 else 0.5), 1.0)
+		var thigh: float
+		var flex: float
+		if u < 0.6:
+			var t := u / 0.6
+			thigh = amp * (1.0 - 2.0 * t)
+			flex = 0.05 + 0.1 * sin(t * PI) + smoothstep(0.78, 1.0, t) * 0.45  # takes weight, then the heel lifts
+		else:
+			var w := (u - 0.6) / 0.4
+			thigh = lerpf(-amp, amp, smoothstep(0.0, 1.0, w)) + 0.22 * sin(w * PI)
+			flex = 0.08 + 0.95 * sin(PI * pow(w, 0.7)) * (1.0 - 0.15 * (1.0 - w)) + (1.0 - w) * 0.0
+		if i == 1:
+			thigh *= 0.9  # the right leg is shorter in stride and drags
+			flex *= 0.8
+		thigh = lerpf(0.04, thigh + 0.04, gait_w)
+		flex = lerpf(0.06, flex, gait_w)
+		var knee := -flex
 		_rot[s + "UpperLeg"] = Vector3(thigh, 0, side * 0.03)
 		_rot[s + "LowerLeg"] = Vector3(knee, 0, 0)
-		_rot[s + "Foot"] = Vector3(-(thigh + knee), 0, 0)
+		# The foot stays level on the ground and hangs down a little as the leg swings through
+		# (the right toe drags).
+		var swinging := 0.0 if u < 0.6 else sin((u - 0.6) / 0.4 * PI)
+		_rot[s + "Foot"] = Vector3(-(thigh + knee) + swinging * (0.2 if i == 1 else 0.08) * gait_w, 0, 0)
 
 	# Torso: held upright, with no forward lean and no side-to-side pelvis sway; the
 	# lurch is only a small vertical dip with each step.
 	# The pivot torso bends at one joint; the bones share it out up the spine.
-	var lurch := absf(sin(_phase)) * stride
+	var lurch := absf(cos(_phase)) * gait_w
 	_hip_drop = lurch * 0.04
 	_hip_sway = 0.0
-	_rot["Hips"] = Vector3(0, 0, _hip_sway)
-	var spine := Vector3(0.0, _avert_b * avert_side * 0.55, 0.05)
+	# The pelvis and shoulders twist against each other as it walks (a turn about the
+	# vertical, not a lean and not a sway), and the chest rises and falls with its breath.
+	var twist := cos(warped) * stride
+	_rot["Hips"] = Vector3(0, twist * 0.05, _hip_sway)
+	var breath := sin(_time * 1.4) * 0.018 * calm + sin(_time * 6.0) * 0.03 * chase
+	var blow := (smoothstep(0.0, 0.3, _strike_t) * (1.0 - smoothstep(0.3, 0.45, _strike_t)) * -0.25 + smoothstep(0.3, 0.45, _strike_t) * (1.0 - smoothstep(0.6, 0.95, _strike_t)) * 0.5) if _strike_t >= 0.0 else 0.0
+	var spine := Vector3(0.0, _avert_b * avert_side * 0.55 - twist * 0.05 + blow, 0.05)
 	_rot["Spine"] = spine * 0.35
 	_rot["Chest"] = spine * 0.35
-	_rot["UpperChest"] = spine * 0.3
+	_rot["UpperChest"] = spine * 0.3 + Vector3(breath, 0, 0)
 
 	# Arms: hang long and limp, sway with the gait, reach out in a chase, and
 	# claw up over the face when burned.
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
 		var s: String = "Left" if i == 0 else "Right"
-		var swing := -sin(_phase + (0.0 if i == 0 else PI)) * 0.3 * stride
-		var hang := 0.3 + swing + sin(_time * 0.9 + i) * 0.03
+		var swing := -cos(warped + (0.0 if i == 0 else PI) - 0.5) * 0.3 * stride  # opposite the leg, a beat late
+		var hang := 0.3 + swing + _n(_time * 0.9, i * 5.0) * 0.04
 		# Chasing, the arms hang low and loose, swinging a little. They no longer shoot out
 		# in front of it (which read as a thrusting lunge).
 		var reach := 0.7 + sin(_time * 1.8 + i * 2.0) * 0.06
-		var shield := 1.5 + sin(_time * 31.0 + i) * 0.06
+		var shield := 1.5 + (_n(_time * 11.0, i * 3.0) * 0.07 + flinch * 0.45) * 1.0
 		var upper := Vector3(lerpf(lerpf(hang, reach, chase), shield, burning), 0, side * lerpf(lerpf(0.12, 0.16, chase), -0.75, burning))
 		var lower := Vector3(lerpf(lerpf(0.12, 0.55, chase), 2.1, burning), 0, 0)
 		# Turning from a light: the arm on the far side comes up across its face.
@@ -225,30 +309,74 @@ func animate(delta: float, ground_speed: float, chasing: bool, burn: float) -> v
 		# Catching you: both arms rise high and open like claws over its head.
 		upper = upper.lerp(Vector3(2.6, 0, side * 0.5), _catch_b)
 		lower = lower.lerp(Vector3(0.5, 0, 0), _catch_b)
+		# The strike: the right arm winds up behind the shoulder, then whips out at what is
+		# in front of it and falls back.
+		if s == "Right" and _strike_t >= 0.0:
+			var t := _strike_t
+			var wind := smoothstep(0.0, 0.3, t)
+			var hit := smoothstep(0.3, 0.4, t)
+			var back := smoothstep(0.55, 0.95, t)
+			var cocked := Vector3(-1.1, 0, -1.2)  # drawn back and up beside the head
+			var reached := Vector3(1.62, 0, -0.1)  # straight out, shoulder high
+			var arm := cocked * wind
+			arm = arm.lerp(reached, hit)
+			arm = arm.lerp(Vector3(0.3, 0, -0.16), back)
+			var bend := lerpf(lerpf(0.4, 2.0, wind), 0.0, hit)
+			bend = lerpf(bend, 0.2, back)
+			upper = upper.lerp(arm, 1.0)
+			lower = lower.lerp(Vector3(bend, 0, 0), 1.0)
+		elif s == "Left" and _strike_t >= 0.0:
+			# The other arm swings back to balance the blow.
+			var counter := smoothstep(0.25, 0.42, _strike_t) * (1.0 - smoothstep(0.6, 0.95, _strike_t))
+			upper = upper.lerp(Vector3(-0.6, 0, 0.35), counter)
+			lower = lower.lerp(Vector3(0.5, 0, 0), counter)
 		# Shoved back by the beam: the arms fling out to the sides.
 		upper += Vector3(0.0, 0, side * 0.6 * push)
+		# Pain: an uneven tremor in the arms while the beam is on it.
+		upper.x += _n(_time * 13.0, i * 7.0) * 0.06 * burning
+		lower.x += _n(_time * 17.0, i * 4.0) * 0.08 * burning
 		_rot[s + "UpperArm"] = upper
 		_rot[s + "LowerArm"] = lower
-		_rot[s + "Hand"] = Vector3(lerpf(0.05, 0.3, chase), 0, 0)
+		# The hand claws open as the arm lashes out.
+		var claw := smoothstep(0.28, 0.4, _strike_t) * (1.0 - smoothstep(0.6, 0.9, _strike_t)) if (s == "Right" and _strike_t >= 0.0) else 0.0
+		_rot[s + "Hand"] = Vector3(lerpf(0.05, 0.3, chase) - claw * 0.35, 0, 0)
 
 	# Head: lolls to one side with sudden snaps. In a chase it locks forward.
 	_twitch_timer -= delta
 	if _twitch_timer <= 0.0:
-		_twitch_timer = randf_range(0.7, 3.0)
-		_twitch_target = Vector2(randf_range(-0.2, 0.2), randf_range(-0.35, 0.35))
-	_twitch = _twitch.lerp(_twitch_target, minf(1.0, 5.0 * delta))  # (slow enough to read as a slump, not a snap)
+		# Mostly it holds still; now and then the head jerks to a new angle and eases there.
+		var quick := randf() < 0.3
+		_twitch_timer = randf_range(0.25, 0.6) if quick else randf_range(1.2, 4.5)
+		_twitch_target = Vector2(randf_range(-0.2, 0.2), randf_range(-0.35, 0.35)) * (0.5 if quick else 1.0)
+	_twitch = _twitch.lerp(_twitch_target, minf(1.0, 5.0 * delta))
 	var idle_drift := 1.0 - _look_w_b
-	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2 + _shy_b * 0.25, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm * (1.0 - _avert_b) * idle_drift - _avert_b * avert_side * 0.7 + _look_yaw_b * 0.5, 0)
-	_rot["Head"] = Vector3(0.22 + chase * 0.15 - burning * 0.35 + _twitch.x * calm * idle_drift + _shy_b * 0.2 - _look_pitch_b * 0.6 - _notice_b * 0.3 - _catch_b * 0.8, _look_yaw_b * 0.5, lerpf(0.45, 0.12, chase) * (1.0 - 0.6 * _look_w_b) + _twitch.y * 0.3 * calm * idle_drift)
+	_rot["Neck"] = Vector3(-0.2 - chase * 0.25 - burning * 0.2 + _shy_b * 0.25, (sin(_time * 0.5) * 0.12 + _twitch.y) * calm * (1.0 - _avert_b) * idle_drift - (_avert_b * 0.7 + flinch * 0.45) * avert_side + _look_yaw_b * 0.5, 0)
+	_rot["Head"] = Vector3(0.22 + chase * 0.15 - burning * 0.35 - flinch * 0.45 + _twitch.x * calm * idle_drift + _shy_b * 0.2 - _look_pitch_b * 0.6 - _notice_b * 0.3 - _catch_b * 0.8, _look_yaw_b * 0.5, lerpf(0.45, 0.12, chase) * (1.0 - 0.6 * _look_w_b) + _twitch.y * 0.3 * calm * idle_drift)
 	# The jaw hangs slack; it gapes in a chase and screams when burned.
-	_rot["Jaw"] = Vector3(-(0.04 + chase * 0.16 + burning * 0.26 + absf(sin(_time * 1.9)) * 0.02 + _notice_b * 0.3 + _catch_b * 0.6 + absf(sin(_time * 22.0)) * 0.08 * _catch_b), 0, 0)
+	_rot["Jaw"] = Vector3(-(0.04 + chase * 0.16 + burning * 0.26 + flinch * 0.3 + absf(_n(_time * 9.0, 2.0)) * 0.1 * burning + absf(sin(_time * 1.9)) * 0.02 + _notice_b * 0.3 + _catch_b * 0.6 + absf(sin(_time * 22.0)) * 0.08 * _catch_b), 0, 0)
 
+	# Ease every driven limb toward its pose, so nothing starts or stops instantly.
+	var striking := _strike_t >= 0.0
+	var strike_whip := smoothstep(0.25, 0.32, _strike_t) * (1.0 - smoothstep(0.5, 0.6, _strike_t)) if striking else 0.0
+	if striking:
+		_strike_t += delta
+		if _strike_t >= STRIKE_TIME:
+			_strike_t = -1.0
+	for bone: String in FOLLOW:
+		var target: Vector3 = _rot[bone]
+		var current: Vector3 = _eased.get(bone, target)
+		var rate := float(FOLLOW[bone])
+		if striking and (bone == "RightUpperArm" or bone == "RightLowerArm"):
+			rate = 24.0 + 10.0 * strike_whip  # the swing follows its timing, not the usual limb lag
+		current = current.lerp(target, 1.0 - exp(-rate * delta))
+		_eased[bone] = current
+		_rot[bone] = current
 	_apply()
 
-	# Burning: skin glows from within, the body shudders, smoke thickens.
-	_skin.emission_energy_multiplier = burning * (2.2 + sin(_time * 38.0) * 0.9)
-	position.x = sin(_time * 55.0) * 0.025 * burning
-	position.z = cos(_time * 47.0) * 0.025 * burning
+	# Burning: skin glows from within like embers, the body shudders unevenly, smoke thickens.
+	_skin.emission_energy_multiplier = burning * (1.6 + _n(_time * 7.0, 9.0) * 0.9 + absf(sin(_time * 23.0)) * 0.5)
+	position.x = _n(_time * 15.0, 1.0) * 0.012 * burning
+	position.z = _n(_time * 13.0, 6.0) * 0.012 * burning
 	# Its body is only shadow: shoved, it smears; turned from the light, it thins.
 	scale = Vector3(1.0 - 0.06 * push, 1.0 + 0.08 * push, 1.0)
 	if _smoke != null:

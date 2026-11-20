@@ -55,6 +55,13 @@ func _ready() -> void:
 	restart.pressed.connect(GameState.restart)
 	box.add_child(restart)
 
+	var menu := Button.new()
+	menu.text = "Main menu"
+	menu.custom_minimum_size = Vector2(200, 44)
+	menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	menu.pressed.connect(GameState.quit_to_title)
+	box.add_child(menu)
+
 	var quit := Button.new()
 	quit.text = "Quit"
 	quit.custom_minimum_size = Vector2(200, 44)

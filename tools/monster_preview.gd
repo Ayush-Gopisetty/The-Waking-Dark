@@ -23,6 +23,15 @@ const SHOTS := [
 	["catch", Vector3(0.0, 1.5, -2.8), Vector3(0.0, 1.2, 0.0), "catch", true],
 	["look_left", Vector3(0.0, 1.6, -2.4), Vector3(0.0, 1.5, 0.0), "look_left", true],
 	["look_up", Vector3(1.6, 1.5, -2.2), Vector3(0.0, 1.5, 0.0), "look_up", true],
+	["strike_wind", Vector3(1.8, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "strike:18", true],
+	["strike_hit", Vector3(1.8, 1.5, -2.2), Vector3(0.0, 1.1, 0.0), "strike:23", true],
+	["strike_side_wind", Vector3(-2.8, 1.4, -0.3), Vector3(0.0, 1.3, -0.2), "strike:15", true],
+	["strike_side_hit", Vector3(-2.8, 1.4, -0.3), Vector3(0.0, 1.3, -0.2), "strike:22", true],
+	["strike_side_back", Vector3(-2.8, 1.4, -0.3), Vector3(0.0, 1.3, -0.2), "strike:36", true],
+	["walk_side_a", Vector3(2.6, 1.0, 0.0), Vector3(0.0, 0.9, 0.0), "walk", true, 100],
+	["walk_side_b", Vector3(2.6, 1.0, 0.0), Vector3(0.0, 0.9, 0.0), "walk", true, 108],
+	["walk_side_c", Vector3(2.6, 1.0, 0.0), Vector3(0.0, 0.9, 0.0), "walk", true, 116],
+	["walk_side_d", Vector3(2.6, 1.0, 0.0), Vector3(0.0, 0.9, 0.0), "walk", true, 124],
 	["corridor_dark", Vector3(0.6, 1.6, -5.5), Vector3(0.0, 1.2, 0.0), "walk", true],
 ]
 
@@ -32,6 +41,8 @@ var _flashlight: SpotLight3D
 
 
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	var args := OS.get_cmdline_user_args()
 	var out_dir := args[0] if args.size() > 0 else "user://"
 	_build_stage()
@@ -56,9 +67,12 @@ func _capture_all(out_dir: String) -> void:
 		_body.look_yaw = 0.0
 		_body.look_pitch = 0.0
 		_body.look_weight = 0.0
-		for i in 90:
+		var frames: int = shot[5] if shot.size() > 5 else 90
+		for i in frames:
 			if pose == "push" and i == 84:
 				_body.push_back()
+			if pose.begins_with("strike:") and i == frames - int(pose.get_slice(":", 1)):
+				_body.strike()
 			_pose(pose, 1.0 / 60.0)
 			await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -70,7 +84,7 @@ func _capture_all(out_dir: String) -> void:
 
 func _pose(pose: String, delta: float) -> void:
 	match pose:
-		"idle": _body.animate(delta, 0.0, false, 0.0)
+		"idle", "strike:18", "strike:23", "strike:15", "strike:22", "strike:36": _body.animate(delta, 0.0, false, 0.0)
 		"walk": _body.animate(delta, 1.5, false, 0.0)
 		"chase": _body.animate(delta, 3.2, true, 0.0)
 		"burn": _body.animate(delta, 0.0, false, 1.0)

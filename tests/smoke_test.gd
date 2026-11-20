@@ -15,6 +15,8 @@ var _level: Node
 
 
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	_run.call_deferred()
 
 
@@ -314,6 +316,8 @@ func _run() -> void:
 	_check(nearest > 6.0, "no spirit starts on top of the player (nearest %.1fm)" % nearest)
 	_check(await _wait_for(func() -> bool: return not GameState.restoring and not GameState.cutscene, 5.0), "retry fade-in finishes")
 
+	await _check_menus()
+
 	get_tree().paused = false
 	print("")
 	if _failures.is_empty():
@@ -322,6 +326,118 @@ func _run() -> void:
 	else:
 		print("%d CHECK(S) FAILED: %s" % [_failures.size(), ", ".join(_failures)])
 		get_tree().quit(1)
+
+
+## Saves, settings, the pause menu and the title screen.
+func _check_menus() -> void:
+	print("menus, saves and settings")
+	var player: Player = GameState.player
+
+	# Settings: values are clamped, unknown keys ignored, reset restores the defaults.
+	Settings.set_value("fov", 500.0)
+	_check(is_equal_approx(Settings.fov, 100.0), "settings clamp out-of-range values")
+	Settings.set_value("master_volume", "loud")
+	_check(is_equal_approx(Settings.master_volume, 1.0), "a wrong-typed setting falls back to its default")
+	Settings.set_value("mouse_sensitivity", 2.0)
+	Settings.set_value("master_volume", 0.5)
+	_check(is_equal_approx(AudioServer.get_bus_volume_db(0), linear_to_db(0.5)), "master volume reaches the audio bus")
+	Settings.set_value("fov", 85.0)
+	_check(is_equal_approx(player.camera.fov, 85.0), "the field of view setting reaches the camera")
+	Settings.set_value("subtitles", false)
+	_check(not (_main.get_node("HUD").get("_subtitles") as Control).visible, "turning subtitles off hides them")
+	Settings.set_value("brightness", 1.3)
+	var env: Environment = (_main.get_node("WorldEnvironment") as WorldEnvironment).environment
+	_check(is_equal_approx(env.adjustment_brightness, 1.3), "the brightness setting reaches the environment")
+	Settings.reset_to_defaults()
+	_check(Settings.fov == 72.0 and Settings.subtitles and Settings.master_volume == 1.0, "reset restores the defaults")
+	_check(is_equal_approx(env.adjustment_brightness, 1.0), "reset restores the brightness")
+
+	# Mouse look: sensitivity scales, invert flips the pitch.
+	player.head.rotation.x = 0.0
+	player._look(Vector2(0, 10))
+	var normal_pitch := player.head.rotation.x
+	player.head.rotation.x = 0.0
+	Settings.set_value("invert_y", true)
+	player._look(Vector2(0, 10))
+	_check(is_equal_approx(player.head.rotation.x, -normal_pitch) and normal_pitch != 0.0, "invert vertical look flips the pitch")
+	Settings.set_value("invert_y", false)
+	Settings.set_value("mouse_sensitivity", 2.0)
+	player.head.rotation.x = 0.0
+	player._look(Vector2(0, 10))
+	_check(is_equal_approx(player.head.rotation.x, normal_pitch * 2.0), "mouse sensitivity scales the look speed")
+	Settings.reset_to_defaults()
+	player.head.rotation.x = 0.0
+
+	# Saves: a checkpoint survives the round trip through the file.
+	SaveGame.path = "user://smoke_save.json"
+	SaveGame.enabled = true
+	SaveGame.delete()
+	_check(not SaveGame.exists() and SaveGame.read().is_empty(), "no save file to start with")
+	var checkpoint := {
+		"position": Vector3(3.5, 1.25, -2.0), "yaw": 1.5, "battery": 61.0, "flashlight": true,
+		"inventory": {"furnace_key": true, "id": true}, "taken": ["Pickup3", "Pickup7"] as Array[String],
+		"doors": ["Door2"] as Array[String], "elapsed": 412.5,
+	}
+	_check(SaveGame.write(checkpoint, "servants_hall"), "a checkpoint is written to disk")
+	var back := SaveGame.read()
+	_check(back["position"].is_equal_approx(checkpoint["position"]) and is_equal_approx(back["yaw"], 1.5), "the saved position and yaw come back")
+	_check(back["inventory"] == checkpoint["inventory"] and back["taken"] == checkpoint["taken"] and back["doors"] == checkpoint["doors"], "the saved items, taken pickups and doors come back")
+	_check(back["flashlight"] and is_equal_approx(back["battery"], 61.0) and is_equal_approx(back["elapsed"], 412.5), "the saved flashlight, battery and time come back")
+	_check(SaveGame.summary()["room"] == "servants_hall" and SaveGame.room_label("servants_hall") == "Servants Hall", "the save records where it was made")
+	var broken := FileAccess.open(SaveGame.path, FileAccess.WRITE)
+	broken.store_string("{\"version\": 1, \"position\": [1, 2]}")
+	broken.close()
+	_check(SaveGame.read().is_empty() and SaveGame.summary().is_empty(), "a damaged save is ignored instead of crashing")
+	broken = FileAccess.open(SaveGame.path, FileAccess.WRITE)
+	broken.store_string("not json at all")
+	broken.close()
+	_check(SaveGame.read().is_empty() and not GameState.load_save(), "a garbage save file does not load")
+
+	# GameState writes the file when a checkpoint is made, and load_save restores it.
+	SaveGame.delete()
+	GameState.save_checkpoint()
+	_check(SaveGame.exists() and SaveGame.summary().has("room"), "making a checkpoint saves to disk")
+	GameState.checkpoint.clear()
+	_check(GameState.load_save() and GameState.restoring and not GameState.checkpoint.is_empty(), "load_save fills the checkpoint and asks for a restore")
+	GameState.restoring = false
+
+	# The title screen shows Continue only when there is a save.
+	var title: Control = load(GameState.TITLE_SCENE_PATH).instantiate()
+	add_child(title)
+	await _frames(3)
+	_check(title._continue.visible and "Continue" in title._continue.text, "the title screen offers Continue when a save exists")
+	title.queue_free()
+	SaveGame.delete()
+	title = load(GameState.TITLE_SCENE_PATH).instantiate()
+	add_child(title)
+	await _frames(3)
+	_check(not title._continue.visible, "the title screen hides Continue with no save")
+	title.queue_free()
+	SaveGame.enabled = false
+
+	# The pause menu: Esc pauses and resumes, the settings screen opens inside it.
+	var pause: PauseMenu = _main.get_node("PauseMenu")
+	GameState.ended = false
+	get_tree().paused = false
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	Input.parse_input_event(esc)
+	await _frames(3)
+	_check(pause.is_open and get_tree().paused and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "Esc pauses the game and frees the mouse")
+	pause._show_settings(true)
+	_check(pause._settings_holder.visible and not pause._menu.visible, "Settings opens inside the pause menu")
+	Input.parse_input_event(esc)
+	await _frames(3)
+	_check(pause.is_open and not pause._settings_holder.visible, "Esc leaves the settings screen first")
+	Input.parse_input_event(esc)
+	await _frames(3)
+	_check(not pause.is_open and not get_tree().paused, "Esc again resumes the game")
+	GameState.ended = true
+	Input.parse_input_event(esc)
+	await _frames(3)
+	_check(not pause.is_open, "the pause menu stays shut on the end screen")
+	GameState.ended = false
 
 
 func _aim_at(player: Player, target: Vector3) -> void:

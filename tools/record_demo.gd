@@ -33,6 +33,8 @@ func _process(_delta: float) -> void:
 
 
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	_build_overlay()
 	_main = load("res://scenes/main.tscn").instantiate()
 	add_child(_main)

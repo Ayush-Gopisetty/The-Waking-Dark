@@ -5,6 +5,8 @@ extends Node
 ## Exits 0 when the graph is valid, 1 otherwise.
 
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame

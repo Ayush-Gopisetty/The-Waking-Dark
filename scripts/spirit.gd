@@ -58,6 +58,9 @@ var _screech_cooldown := 0.0
 var _fx_a: AudioStreamPlayer3D
 var _fx_b: AudioStreamPlayer3D
 var _burn_loop: AudioStreamPlayer3D
+## The ground velocity it has built up (see _move).
+var _ground := Vector3.ZERO
+var _last_yaw := 0.0
 var _snd_hiss: AudioStream
 var _snd_thump: AudioStream
 var _snd_rush: AudioStream
@@ -486,7 +489,12 @@ func _tick_chase(delta: float, player: Player) -> float:
 		if _sees_player or _hunting:
 			last_known = player.global_position
 			_lost_time = 0.0
-			var in_reach := _flat_distance(player.global_position) <= catch_distance
+			var distance := _flat_distance(player.global_position)
+			# Close enough to swing at: the arm lashes out before it can grab.
+			if distance < 1.7 and not body.is_striking() and not _blocked_by_light:
+				body.strike()
+				_play_fx(_fx_b, _snd_hiss, -6.0, 1.3)
+			var in_reach := distance <= catch_distance
 			if in_reach and not GameState.is_lit(player.global_position) and not GameState.repels(player.global_position):
 				_catch(player)
 				return 0.0
@@ -570,6 +578,7 @@ func _catch(player: Player) -> void:
 	if _catching or GameState.ended:
 		return
 	_catching = true
+	body.strike()  # (no-op if the swing has already started)
 	GameState.cutscene = true  # freezes Jason and the other spirits
 	velocity = Vector3.ZERO
 	voice.stream = SoundBank.pick("spirit", "shriek")
@@ -691,7 +700,11 @@ func _move(delta: float, speed: float) -> void:
 	_blocked_time = _blocked_time + delta if blocked else 0.0
 	# Gravity, so spirits can use the service stairs.
 	var fall := 0.0 if is_on_floor() else velocity.y - 9.8 * delta
-	velocity = Vector3(motion.x + _knock.x, fall, motion.z + _knock.z)
+	# It gathers speed and slows down like something with weight, instead of starting
+	# and stopping dead; it is quicker to react while hunting or fleeing.
+	var accel := 6.0 if (state == State.CHASE or state == State.RETREAT) else 2.6
+	_ground = _ground.move_toward(motion, accel * delta)
+	velocity = Vector3(_ground.x + _knock.x, fall, _ground.z + _knock.z)
 	_knock = _knock.lerp(Vector3.ZERO, 1.0 - exp(-4.0 * delta))
 	move_and_slide()
 
@@ -788,7 +801,9 @@ func _update_presentation(delta: float) -> void:
 	body.notice = _notice_left > 0.0
 	body.catching = _catching
 	_track_with_head()
-	body.animate(delta, get_real_velocity().length(), state == State.CHASE, weak)
+	var turn_rate := angle_difference(_last_yaw, rotation.y) / maxf(delta, 0.0001)
+	_last_yaw = rotation.y
+	body.animate(delta, get_real_velocity().length(), state == State.CHASE, weak, turn_rate)
 	var chasing := state == State.CHASE
 	var blend := minf(1.0, 3.0 * delta)
 	var burn := clampf(weaken_progress / weaken_time, 0.0, 1.0) if _lit_by_bright else 0.0

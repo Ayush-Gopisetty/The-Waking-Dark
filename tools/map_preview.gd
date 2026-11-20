@@ -4,6 +4,8 @@ extends Node
 ##   godot --path . res://tools/map_preview.tscn -- <output.png>
 
 func _ready() -> void:
+	SaveGame.enabled = false  # never touch the player's save or settings
+	Settings.persist = false
 	var out: String = OS.get_cmdline_user_args()[0]
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	add_child(main)
